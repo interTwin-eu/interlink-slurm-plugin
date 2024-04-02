@@ -16,7 +16,7 @@ builds:
       - arm64
       - amd64
       - ppc64le
-    main: ./cmd/sidecars/slurm
+    main: ./cmd
 archives:
   - name_template: >-
       {{ .Binary }}_

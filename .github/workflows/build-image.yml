@@ -26,7 +26,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Get Repo Owner
         id: get_repo_owner
-        run: echo ::set-output name=repo_owner::$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')
+        run: echo "repo_owner=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+        #run: echo ::set-output name=repo_owner::$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')
       - name: Build container base image
         uses: docker/build-push-action@v5
         with:
@@ -35,5 +36,5 @@ jobs:
           tags: |
             ghcr.io/${{ steps.get_repo_owner.outputs.repo_owner }}/interlink-sidecar-slurm:${{ env.RELEASE_VERSION }}
             ghcr.io/${{ steps.get_repo_owner.outputs.repo_owner }}/interlink-sidecar-slurm:latest
-          file: ./docker/Dockerfile.vk
+          file: ./docker/Dockerfile
           platforms: linux/amd64, linux/arm64
