@@ -37,7 +37,7 @@ jobs:
           context: ./
           outputs: "type=registry,push=true"
           tags: |
-            ghcr.io/${{ steps.get_repo_owner.outputs.repo_owner }}/interlink-sidecar-slurm:${{ env.RELEASE_VERSION }}
-            ghcr.io/${{ steps.get_repo_owner.outputs.repo_owner }}/interlink-sidecar-slurm:latest
+            ghcr.io/${{ steps.get_repo_owner.outputs.repo_owner }}/interlink-sidecar-slurm/interlink-sidecar-slurm:${{ env.RELEASE_VERSION }}
+            ghcr.io/${{ steps.get_repo_owner.outputs.repo_owner }}/interlink-sidecar-slurm/interlink-sidecar-slurm:latest
           file: ./docker/Dockerfile
           platforms: linux/amd64, linux/arm64
