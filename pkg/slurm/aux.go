@@ -33,10 +33,11 @@ var timer time.Time
 var cachedStatus []commonIL.PodStatus
 
 type JidStruct struct {
-	PodUID    string    `json:"PodUID"`
-	JID       string    `json:"JID"`
-	StartTime time.Time `json:"StartTime"`
-	EndTime   time.Time `json:"EndTime"`
+	PodUID       string    `json:"PodUID"`
+	PodNamespace string    `json:"PodNamespace"`
+	JID          string    `json:"JID"`
+	StartTime    time.Time `json:"StartTime"`
+	EndTime      time.Time `json:"EndTime"`
 }
 
 type SingularityCommand struct {
@@ -121,7 +122,9 @@ func LoadJIDs(Ctx context.Context, config commonIL.InterLinkConfig, JIDs *map[st
 
 	for _, entry := range entries {
 		if entry.IsDir() {
-			podUID := entry.Name()
+			splitted_entry := strings.Split(entry.Name(), "-")
+			podNamespace := splitted_entry[0]
+			podUID := splitted_entry[1]
 			StartedAt := time.Time{}
 			FinishedAt := time.Time{}
 			JID, err := os.ReadFile(path + entry.Name() + "/" + "JobID.jid")
@@ -149,7 +152,7 @@ func LoadJIDs(Ctx context.Context, config commonIL.InterLinkConfig, JIDs *map[st
 					log.G(Ctx).Debug(err)
 				}
 			}
-			JIDEntry := JidStruct{PodUID: podUID, JID: string(JID), StartTime: StartedAt, EndTime: FinishedAt}
+			JIDEntry := JidStruct{PodUID: podUID, PodNamespace: podNamespace, JID: string(JID), StartTime: StartedAt, EndTime: FinishedAt}
 			(*JIDs)[podUID] = &JIDEntry
 		}
 	}
@@ -283,7 +286,6 @@ func prepareMounts(
 func produceSLURMScript(
 	Ctx context.Context,
 	config commonIL.InterLinkConfig,
-	podNamespace string,
 	podUID string,
 	path string,
 	metadata metav1.ObjectMeta,
@@ -431,7 +433,7 @@ func SLURMBatchSubmit(Ctx context.Context, config commonIL.InterLinkConfig, path
 // is the path where to store the JID file.
 // It also adds the JID to the JIDs main structure.
 // Return the first encountered error.
-func handleJID(Ctx context.Context, pod v1.Pod, podUID string, JIDs *map[string]*JidStruct, output string, path string) error {
+func handleJID(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) error {
 	r := regexp.MustCompile(`Submitted batch job (?P<jid>\d+)`)
 	jid := r.FindStringSubmatch(output)
 	f, err := os.Create(path + "/JobID.jid")
@@ -446,8 +448,8 @@ func handleJID(Ctx context.Context, pod v1.Pod, podUID string, JIDs *map[string]
 		return err
 	}
 
-	(*JIDs)[podUID] = &JidStruct{PodUID: string(pod.UID), JID: jid[1]}
-	log.G(Ctx).Info("Job ID is: " + (*JIDs)[podUID].JID)
+	(*JIDs)[string(pod.UID)] = &JidStruct{PodUID: string(pod.UID), PodNamespace: pod.Namespace, JID: jid[1]}
+	log.G(Ctx).Info("Job ID is: " + (*JIDs)[string(pod.UID)].JID)
 	return nil
 }
 

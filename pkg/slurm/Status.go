@@ -36,16 +36,30 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if timeNow.Sub(timer) >= time.Second*10 {
+	err = json.Unmarshal(bodyBytes, &req)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		w.WriteHeader(statusCode)
+		w.Write([]byte("Some errors occurred while retrieving container status. Check Slurm Sidecar's logs"))
+		log.G(h.Ctx).Error(err)
+		return
+	}
 
-		err = json.Unmarshal(bodyBytes, &req)
-		if err != nil {
-			statusCode = http.StatusInternalServerError
-			w.WriteHeader(statusCode)
-			w.Write([]byte("Some errors occurred while retrieving container status. Check Slurm Sidecar's logs"))
-			log.G(h.Ctx).Error(err)
-			return
+	if req == nil {
+		log.G(h.Ctx).Info("Collecting as much Pod Statuses as possible")
+		resp = cachedStatus
+		for key, jid := range *h.JIDs {
+			found := false
+			for _, cachedPod := range cachedStatus {
+				if key == cachedPod.PodUID {
+					found = true
+				}
+			}
+			if !found {
+				resp = append(resp, commonIL.PodStatus{PodUID: jid.PodUID, PodNamespace: jid.PodNamespace})
+			}
 		}
+	} else if timeNow.Sub(timer) >= time.Second*10 {
 		cmd := []string{"--me"}
 		shell := exec.ExecTask{
 			Command: "squeue",

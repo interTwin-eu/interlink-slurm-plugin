@@ -100,7 +100,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			singularity_command_pod = append(singularity_command_pod, SingularityCommand{command: singularity_command, containerName: container.Name})
 		}
 
-		path, err := produceSLURMScript(h.Ctx, h.Config, data.Pod.Namespace, string(data.Pod.UID), filesPath, metadata, singularity_command_pod)
+		path, err := produceSLURMScript(h.Ctx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod)
 		if err != nil {
 			statusCode = http.StatusInternalServerError
 			w.WriteHeader(statusCode)
@@ -119,7 +119,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.G(h.Ctx).Info(out)
-		err = handleJID(h.Ctx, data.Pod, string(data.Pod.UID), h.JIDs, out, filesPath)
+		err = handleJID(h.Ctx, data.Pod, h.JIDs, out, filesPath)
 		if err != nil {
 			statusCode = http.StatusInternalServerError
 			w.WriteHeader(statusCode)
