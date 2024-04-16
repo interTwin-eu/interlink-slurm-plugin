@@ -16,7 +16,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonIL "github.com/intertwin-eu/interlink/pkg/common"
+	commonIL "github.com/intertwin-eu/interlink-slurm-plugin/pkg/common"
 )
 
 // StatusHandler performs a squeue --me and uses regular expressions to get the running Jobs' status
@@ -45,21 +45,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req == nil {
-		log.G(h.Ctx).Info("Collecting as much Pod Statuses as possible")
-		resp = cachedStatus
-		for key, jid := range *h.JIDs {
-			found := false
-			for _, cachedPod := range cachedStatus {
-				if key == cachedPod.PodUID {
-					found = true
-				}
-			}
-			if !found {
-				resp = append(resp, commonIL.PodStatus{PodUID: jid.PodUID, PodNamespace: jid.PodNamespace})
-			}
-		}
-	} else if timeNow.Sub(timer) >= time.Second*10 {
+	if timeNow.Sub(timer) >= time.Second*10 {
 		cmd := []string{"--me"}
 		shell := exec.ExecTask{
 			Command: "squeue",

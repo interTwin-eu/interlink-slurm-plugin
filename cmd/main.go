@@ -9,8 +9,8 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	logruslogger "github.com/virtual-kubelet/virtual-kubelet/log/logrus"
 
-	commonIL "github.com/intertwin-eu/interlink/pkg/common"
-	slurm "github.com/intertwin-eu/interlink/pkg/slurm"
+	commonIL "github.com/intertwin-eu/interlink-slurm-plugin/pkg/common"
+	slurm "github.com/intertwin-eu/interlink-slurm-plugin/pkg/slurm"
 )
 
 func main() {

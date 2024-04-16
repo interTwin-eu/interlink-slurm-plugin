@@ -19,7 +19,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonIL "github.com/intertwin-eu/interlink/pkg/common"
+	commonIL "github.com/intertwin-eu/interlink-slurm-plugin/pkg/common"
 )
 
 type SidecarHandler struct {
@@ -195,7 +195,7 @@ func prepareEnvs(Ctx context.Context, container v1.Container) []string {
 func prepareMounts(
 	Ctx context.Context,
 	config commonIL.InterLinkConfig,
-	data []commonIL.RetrievedPodData,
+	podData commonIL.RetrievedPodData,
 	container v1.Container,
 	workingPath string,
 ) ([]string, error) {
@@ -204,67 +204,65 @@ func prepareMounts(
 	mount = append(mount, "--bind")
 	mountedData := ""
 
-	for _, podData := range data {
-		err := os.MkdirAll(workingPath, os.ModePerm)
-		if err != nil {
-			log.G(Ctx).Error(err)
-			return nil, err
-		} else {
-			log.G(Ctx).Info("-- Created directory " + workingPath)
+	err := os.MkdirAll(workingPath, os.ModePerm)
+	if err != nil {
+		log.G(Ctx).Error(err)
+		return nil, err
+	} else {
+		log.G(Ctx).Info("-- Created directory " + workingPath)
+	}
+
+	for _, cont := range podData.Containers {
+		for _, cfgMap := range cont.ConfigMaps {
+			if container.Name == cont.Name {
+				configMapsPaths, envs, err := mountData(Ctx, config, podData.Pod, container, cfgMap, workingPath)
+				if err != nil {
+					log.G(Ctx).Error(err)
+					return nil, err
+				}
+
+				for i, path := range configMapsPaths {
+					if os.Getenv("SHARED_FS") != "true" {
+						dirs := strings.Split(path, ":")
+						splitDirs := strings.Split(dirs[0], "/")
+						dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
+						prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + envs[i] + " > " + dirs[0]
+					}
+					mountedData += path
+				}
+			}
 		}
 
-		for _, cont := range podData.Containers {
-			for _, cfgMap := range cont.ConfigMaps {
-				if container.Name == cont.Name {
-					configMapsPaths, envs, err := mountData(Ctx, config, podData.Pod, container, cfgMap, workingPath)
-					if err != nil {
-						log.G(Ctx).Error(err)
-						return nil, err
+		for _, secret := range cont.Secrets {
+			if container.Name == cont.Name {
+				secretsPaths, envs, err := mountData(Ctx, config, podData.Pod, container, secret, workingPath)
+				if err != nil {
+					log.G(Ctx).Error(err)
+					return nil, err
+				}
+				for i, path := range secretsPaths {
+					if os.Getenv("SHARED_FS") != "true" {
+						dirs := strings.Split(path, ":")
+						splitDirs := strings.Split(dirs[0], "/")
+						dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
+						splittedEnv := strings.Split(envs[i], "_")
+						log.G(Ctx).Info(splittedEnv[len(splittedEnv)-1])
+						prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + envs[i] + " > " + dirs[0]
 					}
-
-					for i, path := range configMapsPaths {
-						if os.Getenv("SHARED_FS") != "true" {
-							dirs := strings.Split(path, ":")
-							splitDirs := strings.Split(dirs[0], "/")
-							dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
-							prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + envs[i] + " > " + dirs[0]
-						}
-						mountedData += path
-					}
+					mountedData += path
 				}
 			}
+		}
 
-			for _, secret := range cont.Secrets {
-				if container.Name == cont.Name {
-					secretsPaths, envs, err := mountData(Ctx, config, podData.Pod, container, secret, workingPath)
-					if err != nil {
-						log.G(Ctx).Error(err)
-						return nil, err
-					}
-					for i, path := range secretsPaths {
-						if os.Getenv("SHARED_FS") != "true" {
-							dirs := strings.Split(path, ":")
-							splitDirs := strings.Split(dirs[0], "/")
-							dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
-							splittedEnv := strings.Split(envs[i], "_")
-							log.G(Ctx).Info(splittedEnv[len(splittedEnv)-1])
-							prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + envs[i] + " > " + dirs[0]
-						}
-						mountedData += path
-					}
+		for _, emptyDir := range cont.EmptyDirs {
+			if container.Name == cont.Name {
+				paths, _, err := mountData(Ctx, config, podData.Pod, container, emptyDir, workingPath)
+				if err != nil {
+					log.G(Ctx).Error(err)
+					return nil, err
 				}
-			}
-
-			for _, emptyDir := range cont.EmptyDirs {
-				if container.Name == cont.Name {
-					paths, _, err := mountData(Ctx, config, podData.Pod, container, emptyDir, workingPath)
-					if err != nil {
-						log.G(Ctx).Error(err)
-						return nil, err
-					}
-					for _, path := range paths {
-						mountedData += path
-					}
+				for _, path := range paths {
+					mountedData += path
 				}
 			}
 		}
@@ -433,24 +431,24 @@ func SLURMBatchSubmit(Ctx context.Context, config commonIL.InterLinkConfig, path
 // is the path where to store the JID file.
 // It also adds the JID to the JIDs main structure.
 // Return the first encountered error.
-func handleJID(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) error {
+func handleJID(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) (string, error) {
 	r := regexp.MustCompile(`Submitted batch job (?P<jid>\d+)`)
 	jid := r.FindStringSubmatch(output)
 	f, err := os.Create(path + "/JobID.jid")
 	if err != nil {
 		log.G(Ctx).Error("Can't create jid_file")
-		return err
+		return "", err
 	}
 	_, err = f.WriteString(jid[1])
 	f.Close()
 	if err != nil {
 		log.G(Ctx).Error(err)
-		return err
+		return "", err
 	}
 
 	(*JIDs)[string(pod.UID)] = &JidStruct{PodUID: string(pod.UID), PodNamespace: pod.Namespace, JID: jid[1]}
 	log.G(Ctx).Info("Job ID is: " + (*JIDs)[string(pod.UID)].JID)
-	return nil
+	return (*JIDs)[string(pod.UID)].JID, nil
 }
 
 // removeJID delete a JID from the structure
