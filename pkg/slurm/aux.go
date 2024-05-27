@@ -361,7 +361,7 @@ func produceSLURMScript(
 		prefix += "\n" + config.Commandprefix
 	}
 
-	if preExecAnnotations, ok := metadata.Annotations["job.vk.io/pre-exec"]; ok {
+	if preExecAnnotations, ok := metadata.Annotations["slurm-job.vk.io/pre-exec"]; ok {
 		prefix += "\n" + preExecAnnotations
 	}
 

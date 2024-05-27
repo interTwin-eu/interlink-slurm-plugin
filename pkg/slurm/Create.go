@@ -47,17 +47,17 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	for _, container := range containers {
 		log.G(h.Ctx).Info("- Beginning script generation for container " + container.Name)
 		singularityPrefix := commonIL.InterLinkConfigInst.SingularityPrefix
-		if singularityAnnotation, ok := metadata.Annotations["job.vk.io/singularity-commands"]; ok {
+		if singularityAnnotation, ok := metadata.Annotations["slurm-job.vk.io/singularity-commands"]; ok {
 			singularityPrefix += " " + singularityAnnotation
 		}
 
 		singularityMounts := ""
-		if singMounts, ok := metadata.Annotations["job.vk.io/singularity-mounts"]; ok {
+		if singMounts, ok := metadata.Annotations["slurm-job.vk.io/singularity-mounts"]; ok {
 			singularityMounts = singMounts
 		}
 
 		singularityOptions := ""
-		if singOpts, ok := metadata.Annotations["job.vk.io/singularity-options"]; ok {
+		if singOpts, ok := metadata.Annotations["slurm-job.vk.io/singularity-options"]; ok {
 			singularityOptions = singOpts
 		}
 
@@ -124,6 +124,9 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		log.G(h.Ctx).Error(err)
 		os.RemoveAll(filesPath)
 		err = deleteContainer(h.Ctx, h.Config, string(data.Pod.UID), h.JIDs, filesPath)
+		if err != nil {
+			log.G(h.Ctx).Error(err)
+		}
 		return
 	}
 
