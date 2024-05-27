@@ -13,29 +13,29 @@ The project consists of two main components:
 
 The project got inspired by the [KNoC](https://github.com/CARV-ICS-FORTH/knoc) and [Liqo](https://github.com/liqotech/liqo/tree/master) projects, enhancing that with the implemention a generic API layer b/w the virtual kubelet component and the provider logic for the container lifecycle management.
 
-## :information_source: Usage
+## :electron: Usage
 
-### Requirements
+### :bangbang: Requirements
 - __[Our Kubernetes Virtual Node and the interLink API server](https://github.com/interTwin-eu/interLink)__
 - __[The Go programming language](https://go.dev/doc/install)__ (to build binaries)
 - __[Docker Engine](https://docs.docker.com/engine/)__ (optional)
 
 Note: if you want a quick start setup (using a Docker container), Go is not necessary
 
-### Quick Start
+### :fast_forward: Quick Start
 Just run:
 ```bash
 cd docker && docker compose up -d
 ```
 
-### Building binaries
+### :hammer: Building binaries
 It is of course possible to use binaries as a standalone application. Just run 
 ```bash
 make all
 ```
 and you will be able to find the built slurm-sd binary inside the bin directory. Before executing it, remember to check if the configuration file is correctly set according to your needs. You can find an example one under examples/config/InterLinkConfig.yaml. Do not forget to set the INTERLINKCONFIGPATH environment variable to point to your config.
 
-### :information_source: Annotations
+### :pencil2: Annotations
 It is possible to specify Annotations when submitting Pods to the K8S cluster. A list of all Annotations follows:
 | Annotation    | Description|
 |--------------|------------|
@@ -47,7 +47,7 @@ It is possible to specify Annotations when submitting Pods to the K8S cluster. A
 | slurm-job.vk.io/flags | Used to specify SLURM flags. These flags will be added to the SLURM script in the form of #SBATCH flag1, #SBATCH flag2, etc |
 | slurm-job.vk.io/mpi-flags | Used to prepend "mpiexec -np $SLURM_NTASKS \*flags\*" to the Singularity Execution |
 
-### :information_source: InterLink Config file
+### :wrench: InterLink Config file
 Detailed explanation of the InterLink config file key values. Edit the config file before running the binary or before building the docker image (`docker compose up -d --build --force-recreate` will recreate and re-run the updated image)
 | Key         | Value     |
 |--------------|-----------|
@@ -68,7 +68,7 @@ Detailed explanation of the InterLink config file key values. Edit the config fi
 | VerboseLogging | Enable or disable Debug messages on logs. True or False values only |
 | ErrorsOnlyLogging | Specify if you want to get errors only on logs. True or false values only |
 
-### :information_source: Environment Variables list
+### :wrench: Environment Variables list
 Here's the complete list of every customizable environment variable. When specified, it overwrites the listed key within the InterLink config file.
 
 | Env         | Value     |
