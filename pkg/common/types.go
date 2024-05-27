@@ -82,3 +82,8 @@ type LogStruct struct {
 	ContainerName string           `json:"ContainerName"`
 	Opts          ContainerLogOpts `json:"Opts"`
 }
+
+type CreateStruct struct {
+	PodUID string `json:"PodUID"`
+	PodJID string `json:"PodJID"`
+}

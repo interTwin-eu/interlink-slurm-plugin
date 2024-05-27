@@ -16,7 +16,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonIL "github.com/intertwin-eu/interlink/pkg/common"
+	commonIL "github.com/intertwin-eu/interlink-slurm-plugin/pkg/common"
 )
 
 // StatusHandler performs a squeue --me and uses regular expressions to get the running Jobs' status
@@ -36,16 +36,16 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if timeNow.Sub(timer) >= time.Second*10 {
+	err = json.Unmarshal(bodyBytes, &req)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		w.WriteHeader(statusCode)
+		w.Write([]byte("Some errors occurred while retrieving container status. Check Slurm Sidecar's logs"))
+		log.G(h.Ctx).Error(err)
+		return
+	}
 
-		err = json.Unmarshal(bodyBytes, &req)
-		if err != nil {
-			statusCode = http.StatusInternalServerError
-			w.WriteHeader(statusCode)
-			w.Write([]byte("Some errors occurred while retrieving container status. Check Slurm Sidecar's logs"))
-			log.G(h.Ctx).Error(err)
-			return
-		}
+	if timeNow.Sub(timer) >= time.Second*10 {
 		cmd := []string{"--me"}
 		shell := exec.ExecTask{
 			Command: "squeue",
