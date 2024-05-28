@@ -7,6 +7,7 @@ toolchain go1.21.3
 require (
 	github.com/alexellis/go-execute v0.6.0
 	github.com/containerd/containerd v1.7.6
+	github.com/intertwin-eu/interlink v0.0.0-20240523154644-820ca4bd6fac
 	github.com/sirupsen/logrus v1.9.3
 	github.com/virtual-kubelet/virtual-kubelet v1.11.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -33,8 +34,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/rogpeppe/go-internal v1.11.0 // indirect
-	github.com/stretchr/testify v1.9.0 // indirect
 	golang.org/x/net v0.20.0 // indirect
 	golang.org/x/oauth2 v0.16.0 // indirect
 	golang.org/x/sys v0.17.0 // indirect

@@ -9,21 +9,20 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	logruslogger "github.com/virtual-kubelet/virtual-kubelet/log/logrus"
 
-	commonIL "github.com/intertwin-eu/interlink-slurm-plugin/pkg/common"
 	slurm "github.com/intertwin-eu/interlink-slurm-plugin/pkg/slurm"
 )
 
 func main() {
 	logger := logrus.StandardLogger()
 
-	interLinkConfig, err := commonIL.NewInterLinkConfig()
+	slurmConfig, err := slurm.NewSlurmConfig()
 	if err != nil {
 		panic(err)
 	}
 
-	if interLinkConfig.VerboseLogging {
+	if slurmConfig.VerboseLogging {
 		logger.SetLevel(logrus.DebugLevel)
-	} else if interLinkConfig.ErrorsOnlyLogging {
+	} else if slurmConfig.ErrorsOnlyLogging {
 		logger.SetLevel(logrus.ErrorLevel)
 	} else {
 		logger.SetLevel(logrus.InfoLevel)
@@ -34,10 +33,10 @@ func main() {
 	JobIDs := make(map[string]*slurm.JidStruct)
 	Ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	log.G(Ctx).Debug("Debug level: " + strconv.FormatBool(interLinkConfig.VerboseLogging))
+	log.G(Ctx).Debug("Debug level: " + strconv.FormatBool(slurmConfig.VerboseLogging))
 
 	SidecarAPIs := slurm.SidecarHandler{
-		Config: interLinkConfig,
+		Config: slurmConfig,
 		JIDs:   &JobIDs,
 		Ctx:    Ctx,
 	}
@@ -48,10 +47,10 @@ func main() {
 	mutex.HandleFunc("/delete", SidecarAPIs.StopHandler)
 	mutex.HandleFunc("/getLogs", SidecarAPIs.GetLogsHandler)
 
-	slurm.CreateDirectories(interLinkConfig)
-	slurm.LoadJIDs(Ctx, interLinkConfig, &JobIDs)
+	slurm.CreateDirectories(slurmConfig)
+	slurm.LoadJIDs(Ctx, slurmConfig, &JobIDs)
 
-	err = http.ListenAndServe(":"+interLinkConfig.Sidecarport, mutex)
+	err = http.ListenAndServe(":"+slurmConfig.Sidecarport, mutex)
 	if err != nil {
 		log.G(Ctx).Fatal(err)
 	}

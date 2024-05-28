@@ -49,8 +49,28 @@ make all
 ```
 
 and you will be able to find the built slurm-sd binary inside the bin directory. Before executing it, remember to check
-if the configuration file is correctly set according to your needs. You can find an example one under examples/config/InterLinkConfig.yaml.
-Do not forget to set the INTERLINKCONFIGPATH environment variable to point to your config.
+if the configuration file is correctly set according to your needs. You can find an example one under examples/config/SlurmConfig.yaml.
+Do not forget to set the SLURMCONFIGPATH environment variable to point to your config.
+
+### :gear: A SLURM config example
+
+```yaml
+SidecarPort: "4000"
+SbatchPath: "/usr/bin/sbatch"
+ScancelPath: "/usr/bin/scancel"
+SqueuePath: "/usr/bin/squeue"
+CommandPrefix: ""
+SingularityPrefix: ""
+ExportPodData: true
+DataRootFolder: ".local/interlink/jobs/"
+Namespace: "vk"
+Tsocks: false
+TsocksPath: "$WORK/tsocks-1.8beta5+ds1/libtsocks.so"
+TsocksLoginNode: "login01"
+BashPath: /bin/bash
+VerboseLogging: true
+ErrorsOnlyLogging: false
+```
 
 ### :pencil2: Annotations
 
@@ -65,15 +85,12 @@ It is possible to specify Annotations when submitting Pods to the K8S cluster. A
 | slurm-job.vk.io/flags | Used to specify SLURM flags. These flags will be added to the SLURM script in the form of #SBATCH flag1, #SBATCH flag2, etc |
 | slurm-job.vk.io/mpi-flags | Used to prepend "mpiexec -np $SLURM_NTASKS \*flags\*" to the Singularity Execution |
 
-### :wrench: InterLink Config file
+### :gear: Explanation of the SLURM Config file
 
-Detailed explanation of the InterLink config file key values. Edit the config file before running the binary or before
+Detailed explanation of the SLURM config file key values. Edit the config file before running the binary or before
 building the docker image (`docker compose up -d --build --force-recreate` will recreate and re-run the updated image)
 | Key         | Value     |
 |--------------|-----------|
-| InterlinkURL | the URL to allow the Virtual Kubelet to contact the InterLink module. |
-| SidecarURL | the URL to allow InterLink to communicate with the Sidecar module (docker, slurm, etc). Do not specify port here |
-| InterlinkPort | the Interlink listening port. InterLink and VK will communicate over this port. |
 | SidecarPort | the sidecar listening port. Sidecar and Interlink will communicate on this port. Set $SIDECARPORT environment variable to specify a custom one |
 | SbatchPath | path to your Slurm's sbatch binary |
 | ScancelPath | path to your Slurm's scancel binary |
@@ -91,19 +108,14 @@ building the docker image (`docker compose up -d --build --force-recreate` will 
 ### :wrench: Environment Variables list
 
 Here's the complete list of every customizable environment variable. When specified, it overwrites the listed key
-within the InterLink config file.
+within the SLURM config file.
 
 | Env         | Value     |
 |--------------|-----------|
-| VK_CONFIG_PATH | VK config file path |
-| INTERLINKURL | the URL to allow the Virtual Kubelet to contact the InterLink module. Do not specify a port here. Overwrites InterlinkURL. |
-| INTERLINKPORT | the InterLink listening port. InterLink and VK will communicate over this port. Overwrites InterlinkPort. |
-| INTERLINKCONFIGPATH | your InterLink config file path. Default is `./kustomizations/InterLinkConfig.yaml` |
-| SIDECARURL | the URL to allow InterLink to communicate with the Sidecar module (docker, slurm, etc). Do not specify port here. Overwrites SidecarURL. |
+| SLURMCONFIGPATH | your SLURM config file path. Default is `/etc/interlink/SlurmConfig.yaml` |
 | SIDECARPORT | the Sidecar listening port. Docker default is 4000, Slurm default is 4001. |
 | SBATCHPATH | path to your Slurm's sbatch binary. Overwrites SbatchPath. |
 | SCANCELPATH | path to your Slurm's scancel binary. Overwrites ScancelPath. |
-| VKTOKENFILE | path to a file containing your token fot OAuth2 proxy authentication. Overwrites VKTokenFile. |
 | SHARED_FS | set this env to "true" to save configmaps values inside files directly mounted to Singularity containers instead of using ENVS to create them later |
 | CUSTOMKUBECONF | path to a service account kubeconfig |
 | TSOCKS | true or false, to use tsocks library allowing proxy networking. Working on Slurm sidecar at the moment. Overwrites Tsocks. |

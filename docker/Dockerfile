@@ -44,9 +44,9 @@ WORKDIR /root
 
 COPY --from=build-stage /app/bin/slurm-sidecar /sidecar/slurm-sidecar
 
-ENV INTERLINKCONFIGPATH=/root/InterLinkConfig.yaml
+ENV SLURMCONFIGPATH=/root/SlurmConfig.yaml
 
-COPY docker/InterLinkConfig.yaml .
+COPY docker/SlurmConfig.yaml .
 
 RUN apt update && apt install -y software-properties-common \
  && add-apt-repository -y ppa:apptainer/ppa \

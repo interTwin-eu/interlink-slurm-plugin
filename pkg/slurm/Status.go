@@ -16,7 +16,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonIL "github.com/intertwin-eu/interlink-slurm-plugin/pkg/common"
+	commonIL "github.com/intertwin-eu/interlink/pkg/interlink"
 )
 
 // StatusHandler performs a squeue --me and uses regular expressions to get the running Jobs' status

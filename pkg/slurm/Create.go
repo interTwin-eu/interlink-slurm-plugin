@@ -9,7 +9,7 @@ import (
 
 	"github.com/containerd/containerd/log"
 
-	commonIL "github.com/intertwin-eu/interlink-slurm-plugin/pkg/common"
+	commonIL "github.com/intertwin-eu/interlink/pkg/interlink"
 )
 
 // SubmitHandler generates and submits a SLURM batch script according to provided data.
@@ -27,7 +27,9 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var data commonIL.RetrievedPodData
-	var returnedJID commonIL.CreateStruct //returnValue
+
+	//to be changed to commonIL.CreateStruct
+	var returnedJID CreateStruct //returnValue
 	var returnedJIDBytes []byte
 	err = json.Unmarshal(bodyBytes, &data)
 	if err != nil {
@@ -46,7 +48,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, container := range containers {
 		log.G(h.Ctx).Info("- Beginning script generation for container " + container.Name)
-		singularityPrefix := commonIL.InterLinkConfigInst.SingularityPrefix
+		singularityPrefix := SlurmConfigInst.SingularityPrefix
 		if singularityAnnotation, ok := metadata.Annotations["slurm-job.vk.io/singularity-commands"]; ok {
 			singularityPrefix += " " + singularityAnnotation
 		}
@@ -130,7 +132,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	returnedJID = commonIL.CreateStruct{PodUID: string(data.Pod.UID), PodJID: jid}
+	returnedJID = CreateStruct{PodUID: string(data.Pod.UID), PodJID: jid}
 
 	returnedJIDBytes, err = json.Marshal(returnedJID)
 	if err != nil {

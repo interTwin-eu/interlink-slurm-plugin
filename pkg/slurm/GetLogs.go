@@ -11,7 +11,7 @@ import (
 
 	"github.com/containerd/containerd/log"
 
-	commonIL "github.com/intertwin-eu/interlink-slurm-plugin/pkg/common"
+	commonIL "github.com/intertwin-eu/interlink/pkg/interlink"
 )
 
 // GetLogsHandler reads Jobs' output file to return what's logged inside.
