@@ -1,41 +1,59 @@
+# :information_source: Overview
+
 ![Interlink logo](./docs/static/img/interlink_logo.png)
 
-## :information_source: Overview
+## Introduction
 
-### Introduction
-InterLink aims to provide an abstraction for the execution of a Kubernetes pod on any remote resource capable of managing a Container execution lifecycle.
-We target to facilitate the development of provider specific plugins, so the resource providers can leverage the power of virtual kubelet without a black belt in kubernetes internals.
+InterLink aims to provide an abstraction for the execution of a Kubernetes pod on any remote resource capable of managing
+a Container execution lifecycle. We target to facilitate the development of provider specific plugins, so the resource
+providers can leverage the power of virtual kubelet without a black belt in kubernetes internals.
 
 The project consists of two main components:
 
-- __A Kubernetes Virtual Node:__ based on the [VirtualKubelet](https://virtual-kubelet.io/) technology. Translating request for a kubernetes pod execution into a remote call to the interLink API server.
-- __The interLink API server:__ a modular and pluggable REST server where you can create your own Container manager plugin (called sidecars), or use the existing ones: remote docker execution on a remote host, singularity Container on a remote SLURM batch system. This repo aims to maintain the SLURM sidecar as a standalone plugin.
+- __A Kubernetes Virtual Node:__ based on the [VirtualKubelet](https://virtual-kubelet.io/) technology.
+Translating request for a kubernetes pod execution into a remote call to the interLink API server.
+- __The interLink API server:__ a modular and pluggable REST server where you can create your own Container manager plugin
+(called sidecars), or use the existing ones: remote docker execution on a remote host, singularity Container on
+a remote SLURM batch system. This repository aims to maintain the SLURM sidecar as a standalone plugin.
 
-The project got inspired by the [KNoC](https://github.com/CARV-ICS-FORTH/knoc) and [Liqo](https://github.com/liqotech/liqo/tree/master) projects, enhancing that with the implemention a generic API layer b/w the virtual kubelet component and the provider logic for the container lifecycle management.
+The project got inspired by the [KNoC](https://github.com/CARV-ICS-FORTH/knoc) and
+[Liqo](https://github.com/liqotech/liqo/tree/master) projects, enhancing that with the implemention a generic API
+layer b/w the virtual kubelet component and the provider logic for the container lifecycle management.
 
 ## :electron: Usage
 
 ### :bangbang: Requirements
+
 - __[Our Kubernetes Virtual Node and the interLink API server](https://github.com/interTwin-eu/interLink)__
+
 - __[The Go programming language](https://go.dev/doc/install)__ (to build binaries)
+
 - __[Docker Engine](https://docs.docker.com/engine/)__ (optional)
 
 Note: if you want a quick start setup (using a Docker container), Go is not necessary
 
 ### :fast_forward: Quick Start
+
 Just run:
+
 ```bash
 cd docker && docker compose up -d
 ```
 
 ### :hammer: Building binaries
-It is of course possible to use binaries as a standalone application. Just run 
+
+It is of course possible to use binaries as a standalone application. Just run
+
 ```bash
 make all
 ```
-and you will be able to find the built slurm-sd binary inside the bin directory. Before executing it, remember to check if the configuration file is correctly set according to your needs. You can find an example one under examples/config/InterLinkConfig.yaml. Do not forget to set the INTERLINKCONFIGPATH environment variable to point to your config.
+
+and you will be able to find the built slurm-sd binary inside the bin directory. Before executing it, remember to check
+if the configuration file is correctly set according to your needs. You can find an example one under examples/config/InterLinkConfig.yaml.
+Do not forget to set the INTERLINKCONFIGPATH environment variable to point to your config.
 
 ### :pencil2: Annotations
+
 It is possible to specify Annotations when submitting Pods to the K8S cluster. A list of all Annotations follows:
 | Annotation    | Description|
 |--------------|------------|
@@ -48,7 +66,9 @@ It is possible to specify Annotations when submitting Pods to the K8S cluster. A
 | slurm-job.vk.io/mpi-flags | Used to prepend "mpiexec -np $SLURM_NTASKS \*flags\*" to the Singularity Execution |
 
 ### :wrench: InterLink Config file
-Detailed explanation of the InterLink config file key values. Edit the config file before running the binary or before building the docker image (`docker compose up -d --build --force-recreate` will recreate and re-run the updated image)
+
+Detailed explanation of the InterLink config file key values. Edit the config file before running the binary or before
+building the docker image (`docker compose up -d --build --force-recreate` will recreate and re-run the updated image)
 | Key         | Value     |
 |--------------|-----------|
 | InterlinkURL | the URL to allow the Virtual Kubelet to contact the InterLink module. |
@@ -56,7 +76,7 @@ Detailed explanation of the InterLink config file key values. Edit the config fi
 | InterlinkPort | the Interlink listening port. InterLink and VK will communicate over this port. |
 | SidecarPort | the sidecar listening port. Sidecar and Interlink will communicate on this port. Set $SIDECARPORT environment variable to specify a custom one |
 | SbatchPath | path to your Slurm's sbatch binary |
-| ScancelPath | path to your Slurm's scancel binary | 
+| ScancelPath | path to your Slurm's scancel binary |
 | CommandPrefix | here you can specify a prefix for the programmatically generated script (for the slurm plugin). Basically, if you want to run anything before the script itself, put it here. |
 | ExportPodData | Set it to true if you want to export Pod's ConfigMaps and Secrets as mountpoints in your Singularity Container |
 | DataRootFolder | Specify where to store the exported ConfigMaps/Secrets locally |
@@ -69,7 +89,9 @@ Detailed explanation of the InterLink config file key values. Edit the config fi
 | ErrorsOnlyLogging | Specify if you want to get errors only on logs. True or false values only |
 
 ### :wrench: Environment Variables list
-Here's the complete list of every customizable environment variable. When specified, it overwrites the listed key within the InterLink config file.
+
+Here's the complete list of every customizable environment variable. When specified, it overwrites the listed key
+within the InterLink config file.
 
 | Env         | Value     |
 |--------------|-----------|
