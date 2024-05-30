@@ -292,6 +292,7 @@ func produceSLURMScript(
 	commands []SingularityCommand,
 ) (string, error) {
 	log.G(Ctx).Info("-- Creating file for the Slurm script")
+	prefix = ""
 	err := os.MkdirAll(path, os.ModePerm)
 	if err != nil {
 		log.G(Ctx).Error(err)
@@ -363,7 +364,7 @@ func produceSLURMScript(
 		prefix += "\n" + config.Commandprefix
 	}
 
-	if preExecAnnotations, ok := metadata.Annotations["job.vk.io/pre-exec"]; ok {
+	if preExecAnnotations, ok := metadata.Annotations["slurm-job.vk.io/pre-exec"]; ok {
 		prefix += "\n" + preExecAnnotations
 	}
 
