@@ -40,6 +40,15 @@ Just run:
 cd docker && docker compose up -d
 ```
 
+This way, a docker container with a full SLURM environment will be started. You can find the used SLURM configuration
+in /docker/SlurmConfig.yaml. If you want to update the config after you already started it once, run:
+
+```bash
+docker compose up -d --build --force-recreate
+```
+
+So, the old container will be deleted, the image rebuilt and a new container with the updated config will be deployed.
+
 ### :hammer: Building binaries
 
 It is of course possible to use binaries as a standalone application. Just run

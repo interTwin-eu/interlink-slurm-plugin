@@ -14,21 +14,21 @@ FROM ubuntu:22.04
 ENV TIMEZONE=America/New_York
 
 # Run system updates
-RUN apt update && apt -y upgrade
+RUN apt-get update && apt-get -y upgrade
 
 # Set time zone
 RUN ln -sn /usr/share/zoneinfo/${TIMEZONE} /etc/localtime \
     && echo ${TIMEZONE} > /etc/timezone \
-    && apt -y install tzdata
+    && apt-get -y install tzdata
 
 # Set locale
-RUN apt -y install locales \
+RUN apt-get -y install locales \
     && locale-gen en_US.UTF-8 \
     && update-locale LANG=en_US.UTF-8 LC_MESSAGES=POSIX
 
 # Install system packages
 RUN DEBIAN_FRONTEND=noninteractive \
-    apt -y install munge \
+    apt-get -y install munge \
                    slurm-wlm
 
 # Slurm configuration
@@ -48,9 +48,9 @@ ENV SLURMCONFIGPATH=/root/SlurmConfig.yaml
 
 COPY docker/SlurmConfig.yaml .
 
-RUN apt update && apt install -y software-properties-common \
+RUN apt-get update && apt-get install -y software-properties-common \
  && add-apt-repository -y ppa:apptainer/ppa \
- && apt install -y apptainer
+ && apt-get install -y apptainer
 
 RUN mkdir -p /cvmfs/grid.cern.ch/etc/grid-security
 
