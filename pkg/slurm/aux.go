@@ -123,37 +123,49 @@ func LoadJIDs(Ctx context.Context, config commonIL.InterLinkConfig, JIDs *map[st
 	for _, entry := range entries {
 		if entry.IsDir() {
 			splitted_entry := strings.Split(entry.Name(), "-")
-			podNamespace := splitted_entry[0]
-			podUID := splitted_entry[1]
-			StartedAt := time.Time{}
-			FinishedAt := time.Time{}
-			JID, err := os.ReadFile(path + entry.Name() + "/" + "JobID.jid")
-			if err != nil {
-				log.G(Ctx).Error(err)
-				return err
-			}
-
-			StartedAtString, err := os.ReadFile(path + entry.Name() + "/" + "StartedAt.time")
-			if err != nil {
-				log.G(Ctx).Debug(err)
-			} else {
-				StartedAt, err = parsingTimeFromString(Ctx, string(StartedAtString), "2006-01-02 15:04:05.999999999 -0700 MST")
+			if len(splitted_entry) >= 2 {
+				podNamespace := splitted_entry[0]
+				podUID := ""
+				for i, part := range splitted_entry {
+					if i != 0 {
+						podUID += part
+						if i != len(splitted_entry)-1 {
+							podUID += "-"
+						}
+					}
+				}
+				StartedAt := time.Time{}
+				FinishedAt := time.Time{}
+				JID, err := os.ReadFile(path + entry.Name() + "/" + "JobID.jid")
 				if err != nil {
 					log.G(Ctx).Debug(err)
+					continue
 				}
-			}
 
-			FinishedAtString, err := os.ReadFile(path + entry.Name() + "/" + "FinishedAt.time")
-			if err != nil {
-				log.G(Ctx).Debug(err)
-			} else {
-				FinishedAt, err = parsingTimeFromString(Ctx, string(FinishedAtString), "2006-01-02 15:04:05.999999999 -0700 MST")
+				StartedAtString, err := os.ReadFile(path + entry.Name() + "/" + "StartedAt.time")
 				if err != nil {
 					log.G(Ctx).Debug(err)
+				} else {
+					StartedAt, err = parsingTimeFromString(Ctx, string(StartedAtString), "2006-01-02 15:04:05.999999999 -0700 MST")
+					if err != nil {
+						log.G(Ctx).Debug(err)
+					}
 				}
+
+				FinishedAtString, err := os.ReadFile(path + entry.Name() + "/" + "FinishedAt.time")
+				if err != nil {
+					log.G(Ctx).Debug(err)
+				} else {
+					FinishedAt, err = parsingTimeFromString(Ctx, string(FinishedAtString), "2006-01-02 15:04:05.999999999 -0700 MST")
+					if err != nil {
+						log.G(Ctx).Debug(err)
+					}
+				}
+				JIDEntry := JidStruct{PodUID: podUID, PodNamespace: podNamespace, JID: string(JID), StartTime: StartedAt, EndTime: FinishedAt}
+				(*JIDs)[podUID] = &JIDEntry
+			} else {
+				log.G(Ctx).Debug("Skipping directory " + splitted_entry[0])
 			}
-			JIDEntry := JidStruct{PodUID: podUID, PodNamespace: podNamespace, JID: string(JID), StartTime: StartedAt, EndTime: FinishedAt}
-			(*JIDs)[podUID] = &JIDEntry
 		}
 	}
 
