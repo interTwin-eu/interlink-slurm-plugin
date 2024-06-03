@@ -2,7 +2,6 @@ package slurm
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -25,27 +24,21 @@ func (h *SidecarHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Some errors occurred while checking log requests raw message. Check Docker Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		return
 	}
 
 	err = json.Unmarshal(bodyBytes, &req)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Some errors occurred while unmarshalling log request. Check Docker Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		return
 	}
 
 	path := h.Config.DataRootFolder + req.Namespace + "-" + req.PodUID
 	var output []byte
 	if req.Opts.Timestamps {
-		log.G(h.Ctx).Error(errors.New("Not Implemented"))
-		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
+		h.handleError(w, statusCode, err)
 		return
 	} else {
 		log.G(h.Ctx).Info("Reading  " + path + "/" + req.ContainerName + ".out")
@@ -59,9 +52,7 @@ func (h *SidecarHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if err1 != nil && err2 != nil {
-			log.G(h.Ctx).Error("Failed to retrieve logs.")
-			statusCode = http.StatusInternalServerError
-			w.WriteHeader(statusCode)
+			h.handleError(w, statusCode, err)
 			return
 		}
 

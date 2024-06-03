@@ -2,6 +2,7 @@ package slurm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,18 +31,14 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Some errors occurred while retrieving container status. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		return
 	}
 
 	err = json.Unmarshal(bodyBytes, &req)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Some errors occurred while retrieving container status. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		return
 	}
 
@@ -57,9 +54,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 
 		if execReturn.Stderr != "" {
 			statusCode = http.StatusInternalServerError
-			w.WriteHeader(statusCode)
-			w.Write([]byte("Error executing Squeue. Check Slurm Sidecar's logs"))
-			log.G(h.Ctx).Error("Unable to retrieve job status: " + execReturn.Stderr)
+			h.handleError(w, statusCode, errors.New("unable to retrieve job status: "+execReturn.Stderr))
 			return
 		}
 
@@ -87,27 +82,24 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 						file, err := os.Open(path + "/" + ct.Name + ".status")
 						if err != nil {
 							statusCode = http.StatusInternalServerError
-							w.WriteHeader(statusCode)
-							w.Write([]byte("Error retrieving container status. Check Slurm Sidecar's logs"))
-							log.G(h.Ctx).Error(fmt.Errorf("unable to retrieve container status: %s", err))
+							h.handleError(w, statusCode, fmt.Errorf("unable to retrieve container status: %s", err))
+							log.G(h.Ctx).Error()
 							return
 						}
 						defer file.Close()
 						statusb, err := io.ReadAll(file)
 						if err != nil {
 							statusCode = http.StatusInternalServerError
-							w.WriteHeader(statusCode)
-							w.Write([]byte("Error reading container status. Check Slurm Sidecar's logs"))
-							log.G(h.Ctx).Error(fmt.Errorf("unable to read container status: %s", err))
+							h.handleError(w, statusCode, fmt.Errorf("unable to read container status: %s", err))
+							log.G(h.Ctx).Error()
 							return
 						}
 
 						status, err := strconv.Atoi(strings.Replace(string(statusb), "\n", "", -1))
 						if err != nil {
 							statusCode = http.StatusInternalServerError
-							w.WriteHeader(statusCode)
-							w.Write([]byte("Error converting container status.. Check Slurm Sidecar's logs"))
-							log.G(h.Ctx).Error(fmt.Errorf("unable to convert container status: %s", err))
+							h.handleError(w, statusCode, fmt.Errorf("unable to convert container status: %s", err))
+							log.G(h.Ctx).Error()
 							status = 500
 						}
 
@@ -141,9 +133,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								w.WriteHeader(statusCode)
-								w.Write([]byte("Error writing end timestamp... Check Slurm Sidecar's logs"))
-								log.G(h.Ctx).Error(err)
+								h.handleError(w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -159,9 +149,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/StartedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								w.WriteHeader(statusCode)
-								w.Write([]byte("Error writing start timestamp... Check Slurm Sidecar's logs"))
-								log.G(h.Ctx).Error(err)
+								h.handleError(w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].StartTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -177,9 +165,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								w.WriteHeader(statusCode)
-								w.Write([]byte("Error writing end timestamp... Check Slurm Sidecar's logs"))
-								log.G(h.Ctx).Error(err)
+								h.handleError(w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -201,9 +187,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								w.WriteHeader(statusCode)
-								w.Write([]byte("Error writing end timestamp... Check Slurm Sidecar's logs"))
-								log.G(h.Ctx).Error(err)
+								h.handleError(w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -219,9 +203,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/StartedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								w.WriteHeader(statusCode)
-								w.Write([]byte("Error writing start timestamp... Check Slurm Sidecar's logs"))
-								log.G(h.Ctx).Error(err)
+								h.handleError(w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].StartTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -243,9 +225,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								w.WriteHeader(statusCode)
-								w.Write([]byte("Error writing end timestamp... Check Slurm Sidecar's logs"))
-								log.G(h.Ctx).Error(err)
+								h.handleError(w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -261,9 +241,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								w.WriteHeader(statusCode)
-								w.Write([]byte("Error writing end timestamp... Check Slurm Sidecar's logs"))
-								log.G(h.Ctx).Error(err)
+								h.handleError(w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -299,9 +277,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bodyBytes, err := json.Marshal(resp)
 		if err != nil {
-			w.WriteHeader(statusCode)
-			w.Write([]byte("Some errors occurred while retrieving container status. Check Slurm Sidecar's logs"))
-			log.G(h.Ctx).Error(err)
+			h.handleError(w, statusCode, err)
 			return
 		}
 		w.Write(bodyBytes)

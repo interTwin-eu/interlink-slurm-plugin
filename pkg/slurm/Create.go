@@ -20,9 +20,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Some errors occurred while creating container. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		return
 	}
 
@@ -34,9 +32,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(bodyBytes, &data)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Some errors occurred while creating container. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		return
 	}
 
@@ -71,9 +67,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		log.G(h.Ctx).Debug(mounts)
 		if err != nil {
 			statusCode = http.StatusInternalServerError
-			w.WriteHeader(statusCode)
-			w.Write([]byte("Error prepairing mounts. Check Slurm Sidecar's logs"))
-			log.G(h.Ctx).Error(err)
+			h.handleError(w, statusCode, err)
 			os.RemoveAll(filesPath)
 			return
 		}
@@ -102,18 +96,14 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	path, err := produceSLURMScript(h.Ctx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Error producing Slurm script. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		os.RemoveAll(filesPath)
 		return
 	}
 	out, err := SLURMBatchSubmit(h.Ctx, h.Config, path)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Error submitting Slurm script. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		os.RemoveAll(filesPath)
 		return
 	}
@@ -121,9 +111,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	jid, err := handleJID(h.Ctx, data.Pod, h.JIDs, out, filesPath)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Error handling JID. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		os.RemoveAll(filesPath)
 		err = deleteContainer(h.Ctx, h.Config, string(data.Pod.UID), h.JIDs, filesPath)
 		if err != nil {
@@ -137,9 +125,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	returnedJIDBytes, err = json.Marshal(returnedJID)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Error marshaling JID. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(w, statusCode, err)
 		return
 	}
 

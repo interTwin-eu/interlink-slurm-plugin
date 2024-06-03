@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 
 	"k8s.io/client-go/kubernetes"
@@ -92,4 +93,10 @@ func NewSlurmConfig() (SlurmConfig, error) {
 		SlurmConfigInst.set = true
 	}
 	return SlurmConfigInst, nil
+}
+
+func (h *SidecarHandler) handleError(w http.ResponseWriter, statusCode int, err error) {
+	w.WriteHeader(statusCode)
+	w.Write([]byte("Some errors occurred while creating container. Check Slurm Sidecar's logs"))
+	log.G(h.Ctx).Error(err)
 }
