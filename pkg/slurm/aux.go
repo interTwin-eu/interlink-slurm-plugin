@@ -122,24 +122,26 @@ func LoadJIDs(Ctx context.Context, config commonIL.InterLinkConfig, JIDs *map[st
 
 	for _, entry := range entries {
 		if entry.IsDir() {
-			splitted_entry := strings.Split(entry.Name(), "-")
-			if len(splitted_entry) >= 2 {
-				podNamespace := splitted_entry[0]
-				podUID := ""
-				for i, part := range splitted_entry {
-					if i != 0 {
-						podUID += part
-						if i != len(splitted_entry)-1 {
-							podUID += "-"
-						}
-					}
-				}
-				StartedAt := time.Time{}
-				FinishedAt := time.Time{}
-				JID, err := os.ReadFile(path + entry.Name() + "/" + "JobID.jid")
+			var podNamespace []byte
+			var podUID []byte
+			StartedAt := time.Time{}
+			FinishedAt := time.Time{}
+
+			JID, err := os.ReadFile(path + entry.Name() + "/" + "JobID.jid")
+			if err != nil {
+				log.G(Ctx).Debug(err)
+				continue
+			} else {
+				podUID, err = os.ReadFile(path + entry.Name() + "/" + "PodUID.uid")
 				if err != nil {
 					log.G(Ctx).Debug(err)
 					continue
+				} else {
+					podNamespace, err = os.ReadFile(path + entry.Name() + "/" + "PodNamespace.ns")
+					if err != nil {
+						log.G(Ctx).Debug(err)
+						continue
+					}
 				}
 
 				StartedAtString, err := os.ReadFile(path + entry.Name() + "/" + "StartedAt.time")
@@ -151,21 +153,19 @@ func LoadJIDs(Ctx context.Context, config commonIL.InterLinkConfig, JIDs *map[st
 						log.G(Ctx).Debug(err)
 					}
 				}
+			}
 
-				FinishedAtString, err := os.ReadFile(path + entry.Name() + "/" + "FinishedAt.time")
+			FinishedAtString, err := os.ReadFile(path + entry.Name() + "/" + "FinishedAt.time")
+			if err != nil {
+				log.G(Ctx).Debug(err)
+			} else {
+				FinishedAt, err = parsingTimeFromString(Ctx, string(FinishedAtString), "2006-01-02 15:04:05.999999999 -0700 MST")
 				if err != nil {
 					log.G(Ctx).Debug(err)
-				} else {
-					FinishedAt, err = parsingTimeFromString(Ctx, string(FinishedAtString), "2006-01-02 15:04:05.999999999 -0700 MST")
-					if err != nil {
-						log.G(Ctx).Debug(err)
-					}
 				}
-				JIDEntry := JidStruct{PodUID: podUID, PodNamespace: podNamespace, JID: string(JID), StartTime: StartedAt, EndTime: FinishedAt}
-				(*JIDs)[podUID] = &JIDEntry
-			} else {
-				log.G(Ctx).Debug("Skipping directory " + splitted_entry[0])
 			}
+			JIDEntry := JidStruct{PodUID: string(podUID), PodNamespace: string(podNamespace), JID: string(JID), StartTime: StartedAt, EndTime: FinishedAt}
+			(*JIDs)[string(podUID)] = &JIDEntry
 		}
 	}
 
@@ -441,21 +441,38 @@ func SLURMBatchSubmit(Ctx context.Context, config commonIL.InterLinkConfig, path
 	return string(execReturn.Stdout), nil
 }
 
-// handleJID creates a JID file to store the Job ID of the submitted job.
+// handleJidAndPodUid creates a JID file to store the Job ID of the submitted job.
 // The output parameter must be the output of SLURMBatchSubmit function and the path
 // is the path where to store the JID file.
 // It also adds the JID to the JIDs main structure.
+// Finally, it stores the namespace and podUID info in the same location, to restore
+// status at startup.
 // Return the first encountered error.
-func handleJID(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) error {
+func handleJidAndPodUid(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) error {
 	r := regexp.MustCompile(`Submitted batch job (?P<jid>\d+)`)
 	jid := r.FindStringSubmatch(output)
-	f, err := os.Create(path + "/JobID.jid")
+	fJID, err := os.Create(path + "/JobID.jid")
 	if err != nil {
 		log.G(Ctx).Error("Can't create jid_file")
 		return err
 	}
-	_, err = f.WriteString(jid[1])
-	f.Close()
+	defer fJID.Close()
+
+	fNS, err := os.Create(path + "/PodNamespace.ns")
+	if err != nil {
+		log.G(Ctx).Error("Can't create namespace_file")
+		return err
+	}
+	defer fNS.Close()
+
+	fUID, err := os.Create(path + "/PodUID.uid")
+	if err != nil {
+		log.G(Ctx).Error("Can't create PodUID_file")
+		return err
+	}
+	defer fUID.Close()
+
+	_, err = fJID.WriteString(jid[1])
 	if err != nil {
 		log.G(Ctx).Error(err)
 		return err
@@ -463,6 +480,19 @@ func handleJID(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, out
 
 	(*JIDs)[string(pod.UID)] = &JidStruct{PodUID: string(pod.UID), PodNamespace: pod.Namespace, JID: jid[1]}
 	log.G(Ctx).Info("Job ID is: " + (*JIDs)[string(pod.UID)].JID)
+
+	_, err = fNS.WriteString(pod.Namespace)
+	if err != nil {
+		log.G(Ctx).Error(err)
+		return err
+	}
+
+	_, err = fUID.WriteString(string(pod.UID))
+	if err != nil {
+		log.G(Ctx).Error(err)
+		return err
+	}
+
 	return nil
 }
 
