@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/containerd/containerd/log"
 
@@ -80,14 +79,10 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			image = container.Image
-			if strings.HasPrefix(container.Image, "/") {
-				if image_uri, ok := metadata.Annotations["slurm-job.vk.io/image-root"]; ok {
-					image = image_uri + container.Image
-				} else {
-					log.G(h.Ctx).Info("- image-uri annotation not specified for path in remote filesystem")
-				}
+			if image_uri, ok := metadata.Annotations["slurm-job.vk.io/image-root"]; ok {
+				image = image_uri + container.Image
 			} else {
-				image = container.Image
+				log.G(h.Ctx).Info("- image-uri annotation not specified for path in remote filesystem")
 			}
 
 			log.G(h.Ctx).Debug("-- Appending all commands together...")
