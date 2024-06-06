@@ -89,10 +89,8 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			singularity_command := append(commstr1, envs...)
 			singularity_command = append(singularity_command, mounts...)
 			singularity_command = append(singularity_command, image)
-			singularity_command = append(singularity_command, container.Command...)
-			singularity_command = append(singularity_command, container.Args...)
 
-			singularity_command_pod = append(singularity_command_pod, SingularityCommand{command: singularity_command, containerName: container.Name})
+			singularity_command_pod = append(singularity_command_pod, SingularityCommand{singularityCommand: singularity_command, containerName: container.Name, containerArgs: container.Args, containerCommand: container.Command})
 		}
 
 		path, err := produceSLURMScript(h.Ctx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod)

@@ -41,8 +41,10 @@ type JidStruct struct {
 }
 
 type SingularityCommand struct {
-	containerName string
-	command       []string
+	containerName      string
+	singularityCommand []string
+	containerCommand   []string
+	containerArgs      []string
 }
 
 // stringToHex encodes the provided str string into a hex string and removes all trailing redundant zeroes to keep the output more compact
@@ -280,6 +282,11 @@ func prepareMounts(
 				}
 			}
 		}
+
+		if container.Command != nil {
+			mountedData += config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "commands_" + container.Name + ".sh" +
+				":" + "/" + "commands_" + container.Name + ".sh"
+		}
 	}
 
 	if last := len(mountedData) - 1; last >= 0 && mountedData[last] == ',' {
@@ -342,7 +349,7 @@ func produceSLURMScript(
 		if mpiFlags != "true" {
 			mpi := append([]string{"mpiexec", "-np", "$SLURM_NTASKS"}, strings.Split(mpiFlags, " ")...)
 			for _, singularityCommand := range commands {
-				singularityCommand.command = append(mpi, singularityCommand.command...)
+				singularityCommand.singularityCommand = append(mpi, singularityCommand.singularityCommand...)
 			}
 		}
 	}
@@ -395,7 +402,12 @@ func produceSLURMScript(
 	stringToBeWritten += sbatch_macros
 
 	for _, singularityCommand := range commands {
-		stringToBeWritten += "\n" + strings.Join(singularityCommand.command[:], " ") +
+		stringToBeWritten += "\necho \"" + strings.Join(singularityCommand.containerArgs[:], " ") + "\" > " +
+			path + "/" + "commands_" + singularityCommand.containerName + ".sh" +
+			"\nchmod +x " + path + "/" + "commands_" + singularityCommand.containerName + ".sh"
+
+		stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
+			strings.Join(singularityCommand.containerCommand[:], " ") + " /" + "commands_" + singularityCommand.containerName + ".sh" +
 			" &> " + path + "/" + singularityCommand.containerName + ".out; " +
 			"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
 	}
