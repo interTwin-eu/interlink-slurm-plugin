@@ -212,17 +212,15 @@ func prepareMounts(
 	data []commonIL.RetrievedPodData,
 	container v1.Container,
 	workingPath string,
-) ([]string, error) {
+) (string, error) {
 	log.G(Ctx).Info("-- Preparing mountpoints for " + container.Name)
-	mount := make([]string, 1)
-	mount = append(mount, "--bind")
 	mountedData := ""
 
 	for _, podData := range data {
 		err := os.MkdirAll(workingPath, os.ModePerm)
 		if err != nil {
 			log.G(Ctx).Error(err)
-			return nil, err
+			return "", err
 		} else {
 			log.G(Ctx).Info("-- Created directory " + workingPath)
 		}
@@ -233,7 +231,7 @@ func prepareMounts(
 					configMapsPaths, envs, err := mountData(Ctx, config, podData.Pod, container, cfgMap, workingPath)
 					if err != nil {
 						log.G(Ctx).Error(err)
-						return nil, err
+						return "", err
 					}
 
 					for i, path := range configMapsPaths {
@@ -243,7 +241,7 @@ func prepareMounts(
 							dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
 							prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + envs[i] + " > " + dirs[0]
 						}
-						mountedData += path
+						mountedData += "--bind " + path
 					}
 				}
 			}
@@ -253,7 +251,7 @@ func prepareMounts(
 					secretsPaths, envs, err := mountData(Ctx, config, podData.Pod, container, secret, workingPath)
 					if err != nil {
 						log.G(Ctx).Error(err)
-						return nil, err
+						return "", err
 					}
 					for i, path := range secretsPaths {
 						if os.Getenv("SHARED_FS") != "true" {
@@ -264,7 +262,7 @@ func prepareMounts(
 							log.G(Ctx).Info(splittedEnv[len(splittedEnv)-1])
 							prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + envs[i] + " > " + dirs[0]
 						}
-						mountedData += path
+						mountedData += "--bind " + path
 					}
 				}
 			}
@@ -274,18 +272,20 @@ func prepareMounts(
 					paths, _, err := mountData(Ctx, config, podData.Pod, container, emptyDir, workingPath)
 					if err != nil {
 						log.G(Ctx).Error(err)
-						return nil, err
+						return "", err
 					}
 					for _, path := range paths {
-						mountedData += path
+						mountedData += "--bind " + path
 					}
 				}
 			}
 		}
 
 		if container.Command != nil {
-			mountedData += config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "commands_" + container.Name + ".sh" +
-				":" + "/" + "commands_" + container.Name + ".sh"
+			mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "command_" + container.Name + ".sh" +
+				":" + "/" + "command_" + container.Name + ".sh "
+			mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "args_" + container.Name + ".sh" +
+				":" + "/" + "args_" + container.Name + ".sh"
 		}
 	}
 
@@ -293,9 +293,9 @@ func prepareMounts(
 		mountedData = mountedData[:last]
 	}
 	if len(mountedData) == 0 {
-		return []string{}, nil
+		return "", nil
 	}
-	return append(mount, mountedData), nil
+	return mountedData, nil
 }
 
 // produceSLURMScript generates a SLURM script according to data collected.
@@ -402,12 +402,41 @@ func produceSLURMScript(
 	stringToBeWritten += sbatch_macros
 
 	for _, singularityCommand := range commands {
-		stringToBeWritten += "\necho \"" + strings.Join(singularityCommand.containerArgs[:], " ") + "\" > " +
-			path + "/" + "commands_" + singularityCommand.containerName + ".sh" +
-			"\nchmod +x " + path + "/" + "commands_" + singularityCommand.containerName + ".sh"
+		f2, err := os.Create(path + "/" + "args_" + singularityCommand.containerName + ".sh")
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return "", err
+		}
+		defer f2.Close()
+		argString := strings.Join(singularityCommand.containerArgs, " ")
+		_, err = f2.WriteString(argString)
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return "", err
+		} else {
+			log.G(Ctx).Debug("---- Written arguments file " + f2.Name())
+		}
+
+		f3, err := os.Create(path + "/" + "command_" + singularityCommand.containerName + ".sh")
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return "", err
+		}
+		defer f3.Close()
+		cmdString := strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /args_" + singularityCommand.containerName + ".sh)\""
+		_, err = f3.WriteString(cmdString)
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return "", err
+		} else {
+			log.G(Ctx).Debug("---- Written command file " + f3.Name())
+		}
+
+		os.Chmod(f2.Name(), 0777|os.ModePerm)
+		os.Chmod(f3.Name(), 0777|os.ModePerm)
 
 		stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
-			strings.Join(singularityCommand.containerCommand[:], " ") + " /" + "commands_" + singularityCommand.containerName + ".sh" +
+			strings.Join(singularityCommand.containerCommand[:], " ") + " /" + "command_" + singularityCommand.containerName + ".sh" +
 			" &> " + path + "/" + singularityCommand.containerName + ".out; " +
 			"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
 	}

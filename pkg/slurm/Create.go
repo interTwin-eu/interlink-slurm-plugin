@@ -87,7 +87,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 
 			log.G(h.Ctx).Debug("-- Appending all commands together...")
 			singularity_command := append(commstr1, envs...)
-			singularity_command = append(singularity_command, mounts...)
+			singularity_command = append(singularity_command, mounts)
 			singularity_command = append(singularity_command, image)
 
 			singularity_command_pod = append(singularity_command_pod, SingularityCommand{singularityCommand: singularity_command, containerName: container.Name, containerArgs: container.Args, containerCommand: container.Command})
