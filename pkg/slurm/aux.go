@@ -760,7 +760,7 @@ func mountData(Ctx context.Context, config commonIL.InterLinkConfig, pod v1.Pod,
 								log.G(Ctx).Debug("-- Created EmptyDir in " + edPath)
 							}
 
-							edPath += (":" + mountSpec.MountPath + "/" + mountSpec.Name + ",")
+							edPath += (":" + mountSpec.MountPath + "/" + mountSpec.Name + " ")
 							return []string{edPath}, nil, nil
 						}
 					}
