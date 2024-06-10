@@ -436,7 +436,7 @@ func produceSLURMScript(
 		os.Chmod(f3.Name(), 0777|os.ModePerm)
 
 		stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
-			strings.Join(singularityCommand.containerCommand[:], " ") + " /" + "command_" + singularityCommand.containerName + ".sh" +
+			"/bin/sh" + " /" + "command_" + singularityCommand.containerName + ".sh" +
 			" &> " + path + "/" + singularityCommand.containerName + ".out; " +
 			"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
 	}
