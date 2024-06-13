@@ -2,6 +2,7 @@ version: '3.7'
 services:
   slurm-sidecar:
     container_name: slurm-sidecar
+    image: surax98/slurm-plugin:latest
     build:
       context: ../
       dockerfile: docker/Dockerfile
@@ -16,6 +17,8 @@ services:
     - type: bind
       source: ../examples/config
       target: /etc/interlink
+    environment:
+      - SHARED_FS="true"
     # healthcheck:
     #   test: ["CMD", "/check.sh"]
     #   interval: 10s

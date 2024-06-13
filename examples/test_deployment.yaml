@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
       - image: docker://ghcr.io/grycap/cowsay 
-        command: ["/bin/sh"]
-        args: ["-c",  "\"touch /tmp/test.txt && sleep 60 && echo \\\"hello muu\\\" | /usr/games/cowsay \" " ]
+        command: ["/bin/sh", "-c"]
+        args: ["\"touch /tmp/test.txt && sleep 60 && echo \\\"hello muu\\\" | /usr/games/cowsay \" " ]
         imagePullPolicy: Always
         name: cowsayo
       nodeSelector:

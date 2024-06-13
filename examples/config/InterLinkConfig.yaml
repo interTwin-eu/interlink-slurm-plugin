@@ -1,5 +1,5 @@
-VKTokenFile: "$HOME/interLink/token"
-InterlinkURL: "http://192.168.122.121"
+VKTokenFile: "/home/surax/interLink/token"
+InterlinkURL: "http://localhost"
 SidecarURL: "http://localhost"
 InterlinkPort: "3000"
 SidecarPort: "4000"

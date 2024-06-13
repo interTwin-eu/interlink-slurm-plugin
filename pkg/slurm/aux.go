@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,11 @@ type JidStruct struct {
 	JID          string    `json:"JID"`
 	StartTime    time.Time `json:"StartTime"`
 	EndTime      time.Time `json:"EndTime"`
+}
+
+type ResourceLimits struct {
+	CPU    int64
+	Memory int64
 }
 
 type SingularityCommand struct {
@@ -283,9 +289,9 @@ func prepareMounts(
 
 		if container.Command != nil {
 			mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "command_" + container.Name + ".sh" +
-				":" + "/" + "command_" + container.Name + ".sh "
+				":" + "/tmp/" + "command_" + container.Name + ".sh "
 			mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "args_" + container.Name + ".sh" +
-				":" + "/" + "args_" + container.Name + ".sh"
+				":" + "/tmp/" + "args_" + container.Name + ".sh"
 		}
 	}
 
@@ -309,6 +315,7 @@ func produceSLURMScript(
 	path string,
 	metadata metav1.ObjectMeta,
 	commands []SingularityCommand,
+	resourceLimits ResourceLimits,
 ) (string, error) {
 	log.G(Ctx).Info("-- Creating file for the Slurm script")
 	prefix = ""
@@ -353,6 +360,9 @@ func produceSLURMScript(
 			}
 		}
 	}
+
+	sbatchFlagsFromArgo = append(sbatchFlagsFromArgo, "--mem="+strconv.FormatInt(resourceLimits.Memory/1024/1024, 10))
+	sbatchFlagsFromArgo = append(sbatchFlagsFromArgo, "--cpus-per-task="+strconv.FormatInt(resourceLimits.CPU, 10))
 
 	for _, slurmFlag := range sbatchFlagsFromArgo {
 		sbatchFlagsAsString += "\n#SBATCH " + slurmFlag
@@ -423,7 +433,7 @@ func produceSLURMScript(
 			return "", err
 		}
 		defer f3.Close()
-		cmdString := strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /args_" + singularityCommand.containerName + ".sh)\""
+		cmdString := strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
 		_, err = f3.WriteString(cmdString)
 		if err != nil {
 			log.G(Ctx).Error(err)
@@ -436,7 +446,7 @@ func produceSLURMScript(
 		os.Chmod(f3.Name(), 0777|os.ModePerm)
 
 		stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
-			"/bin/sh" + " /" + "command_" + singularityCommand.containerName + ".sh" +
+			"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
 			" &> " + path + "/" + singularityCommand.containerName + ".out; " +
 			"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
 	}
@@ -556,7 +566,7 @@ func deleteContainer(Ctx context.Context, config commonIL.InterLinkConfig, podUI
 			log.G(Ctx).Info("- Deleted Job ", (*JIDs)[podUID].JID)
 		}
 	}
-	err := os.RemoveAll(path + "/" + podUID)
+	err := os.RemoveAll(path)
 	removeJID(podUID, JIDs)
 	if err != nil {
 		log.G(Ctx).Error(err)
@@ -602,7 +612,13 @@ func mountData(Ctx context.Context, config commonIL.InterLinkConfig, pod v1.Pod,
 									configMaps[key] = mount.Data[key]
 									fullPath := filepath.Join(podConfigMapDir, key)
 									hexString := stringToHex(fullPath)
-									fullPath += (":" + mountSpec.MountPath + "/" + key + ",")
+									mode := ""
+									if mountSpec.ReadOnly {
+										mode = ":ro"
+									} else {
+										mode = ":rw"
+									}
+									fullPath += (":" + mountSpec.MountPath + "/" + key + mode + " ")
 									configMapNamePaths = append(configMapNamePaths, fullPath)
 
 									if os.Getenv("SHARED_FS") != "true" {
@@ -682,7 +698,13 @@ func mountData(Ctx context.Context, config commonIL.InterLinkConfig, pod v1.Pod,
 									secrets[key] = mount.Data[key]
 									fullPath := filepath.Join(podSecretDir, key)
 									hexString := stringToHex(fullPath)
-									fullPath += (":" + mountSpec.MountPath + "/" + key + ",")
+									mode := ""
+									if mountSpec.ReadOnly {
+										mode = ":ro"
+									} else {
+										mode = ":rw"
+									}
+									fullPath += (":" + mountSpec.MountPath + "/" + key + mode + " ")
 									secretNamePaths = append(secretNamePaths, fullPath)
 
 									if os.Getenv("SHARED_FS") != "true" {
@@ -760,7 +782,13 @@ func mountData(Ctx context.Context, config commonIL.InterLinkConfig, pod v1.Pod,
 								log.G(Ctx).Debug("-- Created EmptyDir in " + edPath)
 							}
 
-							edPath += (":" + mountSpec.MountPath + "/" + mountSpec.Name + " ")
+							mode := ""
+							if mountSpec.ReadOnly {
+								mode = ":ro"
+							} else {
+								mode = ":rw"
+							}
+							edPath += (":" + mountSpec.MountPath + mode + " ")
 							return []string{edPath}, nil, nil
 						}
 					}
@@ -780,4 +808,18 @@ func checkIfJidExists(JIDs *map[string]*JidStruct, uid string) bool {
 	} else {
 		return false
 	}
+}
+
+func getExitCode(ctx context.Context, path string, ctName string) (int32, error) {
+	exitCode, err := os.ReadFile(path + "/" + ctName + ".status")
+	if err != nil {
+		log.G(ctx).Error(err)
+		return 0, err
+	}
+	exitCodeInt, err := strconv.Atoi(strings.Replace(string(exitCode), "\n", "", -1))
+	if err != nil {
+		log.G(ctx).Error(err)
+		return 0, err
+	}
+	return int32(exitCodeInt), nil
 }
