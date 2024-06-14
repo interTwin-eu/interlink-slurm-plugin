@@ -412,43 +412,61 @@ func produceSLURMScript(
 	stringToBeWritten += sbatch_macros
 
 	for _, singularityCommand := range commands {
-		f2, err := os.Create(path + "/" + "args_" + singularityCommand.containerName + ".sh")
-		if err != nil {
-			log.G(Ctx).Error(err)
-			return "", err
+
+		cmdString := ""
+
+		if len(singularityCommand.containerCommand) != 0 {
+			f3, err := os.Create(path + "/" + "command_" + singularityCommand.containerName + ".sh")
+			if err != nil {
+				log.G(Ctx).Error(err)
+				return "", err
+			}
+			defer f3.Close()
+
+			f2, err := os.Create(path + "/" + "args_" + singularityCommand.containerName + ".sh")
+			if err != nil {
+				log.G(Ctx).Error(err)
+				return "", err
+			}
+			defer f2.Close()
+
+			if len(singularityCommand.containerArgs) != 0 {
+				cmdString = strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
+			} else {
+				cmdString = strings.Join(singularityCommand.containerCommand, " ")
+			}
+
+			_, err = f3.WriteString(cmdString)
+			if err != nil {
+				log.G(Ctx).Error(err)
+				return "", err
+			} else {
+				log.G(Ctx).Debug("---- Written command file " + f3.Name())
+			}
+
+			argString := strings.Join(singularityCommand.containerArgs, " ")
+			_, err = f2.WriteString(argString)
+			if err != nil {
+				log.G(Ctx).Error(err)
+				return "", err
+			} else {
+				log.G(Ctx).Debug("---- Written arguments file " + f2.Name())
+			}
+
+			os.Chmod(f2.Name(), 0777|os.ModePerm)
+			os.Chmod(f3.Name(), 0777|os.ModePerm)
 		}
-		defer f2.Close()
-		argString := strings.Join(singularityCommand.containerArgs, " ")
-		_, err = f2.WriteString(argString)
-		if err != nil {
-			log.G(Ctx).Error(err)
-			return "", err
+
+		if len(singularityCommand.containerCommand) != 0 {
+			stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
+				"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
+				" &> " + path + "/" + singularityCommand.containerName + ".out; " +
+				"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
 		} else {
-			log.G(Ctx).Debug("---- Written arguments file " + f2.Name())
+			stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
+				" &> " + path + "/" + singularityCommand.containerName + ".out; " +
+				"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
 		}
-
-		f3, err := os.Create(path + "/" + "command_" + singularityCommand.containerName + ".sh")
-		if err != nil {
-			log.G(Ctx).Error(err)
-			return "", err
-		}
-		defer f3.Close()
-		cmdString := strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
-		_, err = f3.WriteString(cmdString)
-		if err != nil {
-			log.G(Ctx).Error(err)
-			return "", err
-		} else {
-			log.G(Ctx).Debug("---- Written command file " + f3.Name())
-		}
-
-		os.Chmod(f2.Name(), 0777|os.ModePerm)
-		os.Chmod(f3.Name(), 0777|os.ModePerm)
-
-		stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
-			"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
-			" &> " + path + "/" + singularityCommand.containerName + ".out; " +
-			"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
 	}
 
 	stringToBeWritten += "\n" + postfix

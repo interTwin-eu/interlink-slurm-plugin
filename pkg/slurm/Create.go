@@ -62,7 +62,15 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 				singularityOptions = singOpts
 			}
 
-			commstr1 := []string{"singularity", "exec", "--containall", "--nv", singularityMounts, singularityOptions}
+			commstr1 := []string{"singularity", "run", "--containall", "--nv", singularityMounts, singularityOptions}
+
+			/*var commstr1 []string
+			if len(container.Command) != 0 {
+				commstr1 = []string{"singularity", "exec", "--containall", "--nv", singularityMounts, singularityOptions}
+
+			} else {
+				commstr1 = []string{"singularity", "exec", "--containall", "--nv", singularityMounts, singularityOptions}
+			}*/
 
 			envs := prepareEnvs(h.Ctx, container)
 			image := ""
