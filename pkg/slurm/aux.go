@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,9 +41,17 @@ type JidStruct struct {
 	EndTime      time.Time `json:"EndTime"`
 }
 
+type ResourceLimits struct {
+	CPU    int64
+	Memory int64
+}
+
 type SingularityCommand struct {
-	containerName string
-	command       []string
+	containerName      string
+	isInitContainer    bool
+	singularityCommand []string
+	containerCommand   []string
+	containerArgs      []string
 }
 
 // stringToHex encodes the provided str string into a hex string and removes all trailing redundant zeroes to keep the output more compact
@@ -122,24 +131,36 @@ func LoadJIDs(Ctx context.Context, config SlurmConfig, JIDs *map[string]*JidStru
 
 	for _, entry := range entries {
 		if entry.IsDir() {
-			splitted_entry := strings.Split(entry.Name(), "-")
-			podNamespace := splitted_entry[0]
-			podUID := splitted_entry[1]
+			var podNamespace []byte
+			var podUID []byte
 			StartedAt := time.Time{}
 			FinishedAt := time.Time{}
+
 			JID, err := os.ReadFile(path + entry.Name() + "/" + "JobID.jid")
 			if err != nil {
-				log.G(Ctx).Error(err)
-				return err
-			}
-
-			StartedAtString, err := os.ReadFile(path + entry.Name() + "/" + "StartedAt.time")
-			if err != nil {
 				log.G(Ctx).Debug(err)
+				continue
 			} else {
-				StartedAt, err = parsingTimeFromString(Ctx, string(StartedAtString), "2006-01-02 15:04:05.999999999 -0700 MST")
+				podUID, err = os.ReadFile(path + entry.Name() + "/" + "PodUID.uid")
 				if err != nil {
 					log.G(Ctx).Debug(err)
+					continue
+				} else {
+					podNamespace, err = os.ReadFile(path + entry.Name() + "/" + "PodNamespace.ns")
+					if err != nil {
+						log.G(Ctx).Debug(err)
+						continue
+					}
+				}
+
+				StartedAtString, err := os.ReadFile(path + entry.Name() + "/" + "StartedAt.time")
+				if err != nil {
+					log.G(Ctx).Debug(err)
+				} else {
+					StartedAt, err = parsingTimeFromString(Ctx, string(StartedAtString), "2006-01-02 15:04:05.999999999 -0700 MST")
+					if err != nil {
+						log.G(Ctx).Debug(err)
+					}
 				}
 			}
 
@@ -152,8 +173,8 @@ func LoadJIDs(Ctx context.Context, config SlurmConfig, JIDs *map[string]*JidStru
 					log.G(Ctx).Debug(err)
 				}
 			}
-			JIDEntry := JidStruct{PodUID: podUID, PodNamespace: podNamespace, JID: string(JID), StartTime: StartedAt, EndTime: FinishedAt}
-			(*JIDs)[podUID] = &JIDEntry
+			JIDEntry := JidStruct{PodUID: string(podUID), PodNamespace: string(podNamespace), JID: string(JID), StartTime: StartedAt, EndTime: FinishedAt}
+			(*JIDs)[string(podUID)] = &JIDEntry
 		}
 	}
 
@@ -198,16 +219,14 @@ func prepareMounts(
 	podData commonIL.RetrievedPodData,
 	container v1.Container,
 	workingPath string,
-) ([]string, error) {
+) (string, error) {
 	log.G(Ctx).Info("-- Preparing mountpoints for " + container.Name)
-	mount := make([]string, 1)
-	mount = append(mount, "--bind")
 	mountedData := ""
 
 	err := os.MkdirAll(workingPath, os.ModePerm)
 	if err != nil {
 		log.G(Ctx).Error(err)
-		return nil, err
+		return "", err
 	} else {
 		log.G(Ctx).Info("-- Created directory " + workingPath)
 	}
@@ -215,66 +234,78 @@ func prepareMounts(
 	for _, cont := range podData.Containers {
 		for _, cfgMap := range cont.ConfigMaps {
 			if container.Name == cont.Name {
-				configMapsPaths, envs, err := mountData(Ctx, config, podData.Pod, container, cfgMap, workingPath)
+				configMapPath, env, err := mountData(Ctx, config, podData.Pod, container, cfgMap, workingPath)
 				if err != nil {
 					log.G(Ctx).Error(err)
-					return nil, err
+					return "", err
 				}
 
-				for i, path := range configMapsPaths {
-					if os.Getenv("SHARED_FS") != "true" {
-						dirs := strings.Split(path, ":")
-						splitDirs := strings.Split(dirs[0], "/")
-						dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
-						prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + envs[i] + " > " + dirs[0]
-					}
-					mountedData += path
+				log.G(Ctx).Debug(configMapPath)
+
+				if os.Getenv("SHARED_FS") != "true" {
+					dirs := strings.Split(configMapPath, ":")
+					splitDirs := strings.Split(dirs[0], "/")
+					dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
+					prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + env + " > " + dirs[0]
 				}
+				mountedData += "--bind " + configMapPath
+
 			}
 		}
 
 		for _, secret := range cont.Secrets {
 			if container.Name == cont.Name {
-				secretsPaths, envs, err := mountData(Ctx, config, podData.Pod, container, secret, workingPath)
+				secretPath, env, err := mountData(Ctx, config, podData.Pod, container, secret, workingPath)
 				if err != nil {
 					log.G(Ctx).Error(err)
-					return nil, err
+					return "", err
 				}
-				for i, path := range secretsPaths {
-					if os.Getenv("SHARED_FS") != "true" {
-						dirs := strings.Split(path, ":")
-						splitDirs := strings.Split(dirs[0], "/")
-						dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
-						splittedEnv := strings.Split(envs[i], "_")
-						log.G(Ctx).Info(splittedEnv[len(splittedEnv)-1])
-						prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + envs[i] + " > " + dirs[0]
-					}
-					mountedData += path
+
+				log.G(Ctx).Debug(secretPath)
+
+				if os.Getenv("SHARED_FS") != "true" {
+					dirs := strings.Split(secretPath, ":")
+					splitDirs := strings.Split(dirs[0], "/")
+					dir := filepath.Join(splitDirs[:len(splitDirs)-1]...)
+					splittedEnv := strings.Split(env, "_")
+					log.G(Ctx).Info(splittedEnv[len(splittedEnv)-1])
+					prefix += "\nmkdir -p " + dir + " && touch " + dirs[0] + " && echo $" + env + " > " + dirs[0]
 				}
+				mountedData += "--bind " + secretPath
+
 			}
 		}
 
-		for _, emptyDir := range cont.EmptyDirs {
-			if container.Name == cont.Name {
-				paths, _, err := mountData(Ctx, config, podData.Pod, container, emptyDir, workingPath)
-				if err != nil {
-					log.G(Ctx).Error(err)
-					return nil, err
-				}
-				for _, path := range paths {
-					mountedData += path
-				}
+		if container.Name == cont.Name {
+			edPath, _, err := mountData(Ctx, config, podData.Pod, container, "emptyDir", workingPath)
+			if err != nil {
+				log.G(Ctx).Error(err)
+				return "", err
 			}
+
+			log.G(Ctx).Debug(edPath)
+
+			mountedData += edPath
 		}
+
+	}
+
+	if container.Command != nil {
+		mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "command_" + container.Name + ".sh" +
+			":" + "/tmp/" + "command_" + container.Name + ".sh "
+		mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "args_" + container.Name + ".sh" +
+			":" + "/tmp/" + "args_" + container.Name + ".sh"
 	}
 
 	if last := len(mountedData) - 1; last >= 0 && mountedData[last] == ',' {
 		mountedData = mountedData[:last]
 	}
 	if len(mountedData) == 0 {
-		return []string{}, nil
+		return "", nil
 	}
-	return append(mount, mountedData), nil
+	log.G(Ctx).Debug(mountedData)
+
+	return mountedData, nil
 }
 
 // produceSLURMScript generates a SLURM script according to data collected.
@@ -288,6 +319,7 @@ func produceSLURMScript(
 	path string,
 	metadata metav1.ObjectMeta,
 	commands []SingularityCommand,
+	resourceLimits ResourceLimits,
 ) (string, error) {
 	log.G(Ctx).Info("-- Creating file for the Slurm script")
 	prefix = ""
@@ -328,10 +360,13 @@ func produceSLURMScript(
 		if mpiFlags != "true" {
 			mpi := append([]string{"mpiexec", "-np", "$SLURM_NTASKS"}, strings.Split(mpiFlags, " ")...)
 			for _, singularityCommand := range commands {
-				singularityCommand.command = append(mpi, singularityCommand.command...)
+				singularityCommand.singularityCommand = append(mpi, singularityCommand.singularityCommand...)
 			}
 		}
 	}
+
+	sbatchFlagsFromArgo = append(sbatchFlagsFromArgo, "--mem="+strconv.FormatInt(resourceLimits.Memory/1024/1024, 10))
+	sbatchFlagsFromArgo = append(sbatchFlagsFromArgo, "--cpus-per-task="+strconv.FormatInt(resourceLimits.CPU, 10))
 
 	for _, slurmFlag := range sbatchFlagsFromArgo {
 		sbatchFlagsAsString += "\n#SBATCH " + slurmFlag
@@ -381,9 +416,60 @@ func produceSLURMScript(
 	stringToBeWritten += sbatch_macros
 
 	for _, singularityCommand := range commands {
-		stringToBeWritten += "\n" + strings.Join(singularityCommand.command[:], " ") +
-			" &> " + path + "/" + singularityCommand.containerName + ".out; " +
-			"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
+
+		cmdString := ""
+
+		f3, err := os.Create(path + "/" + "command_" + singularityCommand.containerName + ".sh")
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return "", err
+		}
+		defer f3.Close()
+
+		f2, err := os.Create(path + "/" + "args_" + singularityCommand.containerName + ".sh")
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return "", err
+		}
+		defer f2.Close()
+
+		if len(singularityCommand.containerArgs) != 0 {
+			cmdString = strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
+		} else {
+			cmdString = strings.Join(singularityCommand.containerCommand, " ")
+		}
+
+		_, err = f3.WriteString(cmdString)
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return "", err
+		} else {
+			log.G(Ctx).Debug("---- Written command file " + f3.Name())
+		}
+
+		argString := strings.Join(singularityCommand.containerArgs, " ")
+		_, err = f2.WriteString(argString)
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return "", err
+		} else {
+			log.G(Ctx).Debug("---- Written arguments file " + f2.Name())
+		}
+
+		os.Chmod(f2.Name(), 0777|os.ModePerm)
+		os.Chmod(f3.Name(), 0777|os.ModePerm)
+
+		if singularityCommand.isInitContainer {
+			stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
+				"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
+				" &> " + path + "/" + singularityCommand.containerName + ".out; " +
+				"echo $? > " + path + "/" + singularityCommand.containerName + ".status"
+		} else {
+			stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
+				"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
+				" &> " + path + "/" + singularityCommand.containerName + ".out; " +
+				"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
+		}
 	}
 
 	stringToBeWritten += "\n" + postfix
@@ -427,29 +513,59 @@ func SLURMBatchSubmit(Ctx context.Context, config SlurmConfig, path string) (str
 	return string(execReturn.Stdout), nil
 }
 
-// handleJID creates a JID file to store the Job ID of the submitted job.
+// handleJidAndPodUid creates a JID file to store the Job ID of the submitted job.
 // The output parameter must be the output of SLURMBatchSubmit function and the path
 // is the path where to store the JID file.
 // It also adds the JID to the JIDs main structure.
+// Finally, it stores the namespace and podUID info in the same location, to restore
+// status at startup.
 // Return the first encountered error.
-func handleJID(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) (string, error) {
+func handleJidAndPodUid(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) error {
 	r := regexp.MustCompile(`Submitted batch job (?P<jid>\d+)`)
 	jid := r.FindStringSubmatch(output)
-	f, err := os.Create(path + "/JobID.jid")
+	fJID, err := os.Create(path + "/JobID.jid")
 	if err != nil {
 		log.G(Ctx).Error("Can't create jid_file")
-		return "", err
+		return err
 	}
-	_, err = f.WriteString(jid[1])
-	f.Close()
+	defer fJID.Close()
+
+	fNS, err := os.Create(path + "/PodNamespace.ns")
+	if err != nil {
+		log.G(Ctx).Error("Can't create namespace_file")
+		return err
+	}
+	defer fNS.Close()
+
+	fUID, err := os.Create(path + "/PodUID.uid")
+	if err != nil {
+		log.G(Ctx).Error("Can't create PodUID_file")
+		return err
+	}
+	defer fUID.Close()
+
+	_, err = fJID.WriteString(jid[1])
 	if err != nil {
 		log.G(Ctx).Error(err)
-		return "", err
+		return err
 	}
 
 	(*JIDs)[string(pod.UID)] = &JidStruct{PodUID: string(pod.UID), PodNamespace: pod.Namespace, JID: jid[1]}
 	log.G(Ctx).Info("Job ID is: " + (*JIDs)[string(pod.UID)].JID)
-	return (*JIDs)[string(pod.UID)].JID, nil
+
+	_, err = fNS.WriteString(pod.Namespace)
+	if err != nil {
+		log.G(Ctx).Error(err)
+		return err
+	}
+
+	_, err = fUID.WriteString(string(pod.UID))
+	if err != nil {
+		log.G(Ctx).Error(err)
+		return err
+	}
+
+	return nil
 }
 
 // removeJID delete a JID from the structure
@@ -471,7 +587,7 @@ func deleteContainer(Ctx context.Context, config SlurmConfig, podUID string, JID
 			log.G(Ctx).Info("- Deleted Job ", (*JIDs)[podUID].JID)
 		}
 	}
-	err := os.RemoveAll(path + "/" + podUID)
+	err := os.RemoveAll(path)
 	removeJID(podUID, JIDs)
 	if err != nil {
 		log.G(Ctx).Error(err)
@@ -485,178 +601,193 @@ func deleteContainer(Ctx context.Context, config SlurmConfig, podUID string, JID
 // Returns 2 slices of string, one containing the ConfigMaps/Secrets/EmptyDirs paths and one the list of relatives ENVS to be used
 // to create the files inside the container.
 // It also returns the first encountered error.
-func mountData(Ctx context.Context, config SlurmConfig, pod v1.Pod, container v1.Container, data interface{}, path string) ([]string, []string, error) {
+func mountData(Ctx context.Context, config SlurmConfig, pod v1.Pod, container v1.Container, data interface{}, path string) (string, string, error) {
 	if config.ExportPodData {
 		for _, mountSpec := range container.VolumeMounts {
-			var podVolumeSpec *v1.VolumeSource
-
-			for _, vol := range pod.Spec.Volumes {
-				if vol.Name == mountSpec.Name {
-					podVolumeSpec = &vol.VolumeSource
-
-					switch mount := data.(type) {
-					case v1.ConfigMap:
+			switch mount := data.(type) {
+			case v1.ConfigMap:
+				for _, vol := range pod.Spec.Volumes {
+					if vol.ConfigMap != nil && vol.Name == mountSpec.Name && mount.Name == vol.ConfigMap.Name {
 						configMaps := make(map[string]string)
-						var configMapNamePaths []string
-						var envs []string
+						var configMapNamePath string
+						var env string
 
-						err := os.RemoveAll(path + "/configMaps/" + vol.Name)
-
+						err := os.RemoveAll(path + "/configMaps/" + mount.Name)
 						if err != nil {
 							log.G(Ctx).Error("Unable to delete root folder")
-							return nil, nil, err
+							return "", "", err
 						}
 
-						if podVolumeSpec != nil && podVolumeSpec.ConfigMap != nil {
-							log.G(Ctx).Info("--- Mounting ConfigMap " + podVolumeSpec.ConfigMap.Name)
-							mode := os.FileMode(*podVolumeSpec.ConfigMap.DefaultMode)
-							podConfigMapDir := filepath.Join(path+"/", "configMaps/", vol.Name)
+						//if podVolumeSpec != nil && podVolumeSpec.ConfigMap != nil {
+						log.G(Ctx).Info("--- Mounting ConfigMap " + mountSpec.Name)
+						//mode := os.FileMode(*podVolumeSpec.ConfigMap.DefaultMode)
+						mode := os.FileMode(0644)
+						podConfigMapDir := filepath.Join(path+"/", "configMaps/", mountSpec.Name)
 
-							if mount.Data != nil {
-								for key := range mount.Data {
-									configMaps[key] = mount.Data[key]
-									fullPath := filepath.Join(podConfigMapDir, key)
-									hexString := stringToHex(fullPath)
-									fullPath += (":" + mountSpec.MountPath + "/" + key + ",")
-									configMapNamePaths = append(configMapNamePaths, fullPath)
-
-									if os.Getenv("SHARED_FS") != "true" {
-										env := string(container.Name) + "_CFG_" + string(hexString)
-										log.G(Ctx).Debug("---- Setting env " + env + " to mount the file later")
-										err = os.Setenv(env, mount.Data[key])
-										if err != nil {
-											log.G(Ctx).Error("Unable to set ENV for cfgmap " + key)
-											return nil, nil, err
-										}
-										envs = append(envs, env)
-									}
-								}
+						for key := range mount.Data {
+							configMaps[key] = mount.Data[key]
+							fullPath := filepath.Join(podConfigMapDir, key)
+							hexString := stringToHex(fullPath)
+							mode := ""
+							if mountSpec.ReadOnly {
+								mode = ":ro"
+							} else {
+								mode = ":rw"
 							}
+							fullPath += (":" + mountSpec.MountPath + "/" + key + mode + " ")
+							configMapNamePath = fullPath
 
-							if os.Getenv("SHARED_FS") == "true" {
-								log.G(Ctx).Info("--- Shared FS enabled, files will be directly created before the job submission")
-								cmd := []string{"-p " + podConfigMapDir}
-								shell := exec2.ExecTask{
-									Command: "mkdir",
-									Args:    cmd,
-									Shell:   true,
-								}
-
-								execReturn, err := shell.Execute()
-
+							if os.Getenv("SHARED_FS") != "true" {
+								envTemp := string(container.Name) + "_CFG_" + string(hexString)
+								log.G(Ctx).Debug("---- Setting env " + env + " to mount the file later")
+								err = os.Setenv(env, mount.Data[key])
 								if err != nil {
-									log.G(Ctx).Error(err)
-									return nil, nil, err
-								} else if execReturn.Stderr != "" {
-									log.G(Ctx).Error(execReturn.Stderr)
-									return nil, nil, errors.New(execReturn.Stderr)
-								} else {
-									log.G(Ctx).Debug("--- Created folder " + podConfigMapDir)
+									log.G(Ctx).Error("Unable to set ENV for cfgmap " + key)
+									return "", "", err
 								}
-
-								log.G(Ctx).Debug("--- Writing ConfigMaps files")
-								for k, v := range configMaps {
-									// TODO: Ensure that these files are deleted in failure cases
-									fullPath := filepath.Join(podConfigMapDir, k)
-									err = os.WriteFile(fullPath, []byte(v), mode)
-									if err != nil {
-										log.G(Ctx).Errorf("Could not write ConfigMap file %s", fullPath)
-										os.RemoveAll(fullPath)
-										if err != nil {
-											log.G(Ctx).Error("Unable to remove file " + fullPath)
-											return nil, nil, err
-										}
-										return nil, nil, err
-									} else {
-										log.G(Ctx).Debug("Written ConfigMap file " + fullPath)
-									}
-								}
+								env = envTemp
 							}
-							return configMapNamePaths, envs, nil
 						}
 
-					case v1.Secret:
-						secrets := make(map[string][]byte)
-						var secretNamePaths []string
-						var envs []string
+						if os.Getenv("SHARED_FS") == "true" {
+							log.G(Ctx).Info("--- Shared FS enabled, files will be directly created before the job submission")
+							cmd := []string{"-p " + podConfigMapDir}
+							shell := exec2.ExecTask{
+								Command: "mkdir",
+								Args:    cmd,
+								Shell:   true,
+							}
 
-						err := os.RemoveAll(path + "/secrets/" + vol.Name)
+							execReturn, err := shell.Execute()
+
+							if err != nil {
+								log.G(Ctx).Error(err)
+								return "", "", err
+							} else if execReturn.Stderr != "" {
+								log.G(Ctx).Error(execReturn.Stderr)
+								return "", "", errors.New(execReturn.Stderr)
+							} else {
+								log.G(Ctx).Debug("--- Created folder " + podConfigMapDir)
+							}
+
+							log.G(Ctx).Debug("--- Writing ConfigMaps files")
+							for k, v := range configMaps {
+								// TODO: Ensure that these files are deleted in failure cases
+								fullPath := filepath.Join(podConfigMapDir, k)
+								err = os.WriteFile(fullPath, []byte(v), mode)
+								if err != nil {
+									log.G(Ctx).Errorf("Could not write ConfigMap file %s", fullPath)
+									os.RemoveAll(fullPath)
+									if err != nil {
+										log.G(Ctx).Error("Unable to remove file " + fullPath)
+										return "", "", err
+									}
+									return "", "", err
+								} else {
+									log.G(Ctx).Debug("Written ConfigMap file " + fullPath)
+								}
+							}
+						}
+						return configMapNamePath, env, nil
+					}
+				}
+				//}
+
+			case v1.Secret:
+				for _, vol := range pod.Spec.Volumes {
+					if vol.Secret != nil && vol.Name == mountSpec.Name && mount.Name == vol.Secret.SecretName {
+						secrets := make(map[string][]byte)
+						var secretNamePath string
+						var env string
+
+						err := os.RemoveAll(path + "/secrets/" + mountSpec.Name)
 
 						if err != nil {
 							log.G(Ctx).Error("Unable to delete root folder")
-							return nil, nil, err
+							return "", "", err
 						}
 
-						if podVolumeSpec != nil && podVolumeSpec.Secret != nil {
-							log.G(Ctx).Info("--- Mounting Secret " + podVolumeSpec.Secret.SecretName)
-							mode := os.FileMode(*podVolumeSpec.Secret.DefaultMode)
-							podSecretDir := filepath.Join(path+"/", "secrets/", vol.Name)
+						//if podVolumeSpec != nil && podVolumeSpec.Secret != nil {
+						log.G(Ctx).Info("--- Mounting Secret " + mountSpec.Name)
+						mode := os.FileMode(0644)
+						podSecretDir := filepath.Join(path+"/", "secrets/", mountSpec.Name)
 
-							if mount.Data != nil {
-								for key := range mount.Data {
-									secrets[key] = mount.Data[key]
-									fullPath := filepath.Join(podSecretDir, key)
-									hexString := stringToHex(fullPath)
-									fullPath += (":" + mountSpec.MountPath + "/" + key + ",")
-									secretNamePaths = append(secretNamePaths, fullPath)
-
-									if os.Getenv("SHARED_FS") != "true" {
-										env := string(container.Name) + "_SECRET_" + hexString
-										log.G(Ctx).Debug("---- Setting env " + env + " to mount the file later")
-										err = os.Setenv(env, string(mount.Data[key]))
-										if err != nil {
-											log.G(Ctx).Error("Unable to set ENV for secret " + key)
-											return nil, nil, err
-										}
-										envs = append(envs, env)
-									}
-								}
-							}
-
-							if os.Getenv("SHARED_FS") == "true" {
-								log.G(Ctx).Info("--- Shared FS enabled, files will be directly created before the job submission")
-								cmd := []string{"-p " + podSecretDir}
-								shell := exec2.ExecTask{
-									Command: "mkdir",
-									Args:    cmd,
-									Shell:   true,
-								}
-
-								execReturn, err := shell.Execute()
-								if strings.Compare(execReturn.Stdout, "") != 0 {
-									log.G(Ctx).Error(err)
-									return nil, nil, err
-								}
-								if execReturn.Stderr != "" {
-									log.G(Ctx).Error(execReturn.Stderr)
-									return nil, nil, errors.New(execReturn.Stderr)
+						if mount.Data != nil {
+							for key := range mount.Data {
+								secrets[key] = mount.Data[key]
+								fullPath := filepath.Join(podSecretDir, key)
+								hexString := stringToHex(fullPath)
+								mode := ""
+								if mountSpec.ReadOnly {
+									mode = ":ro"
 								} else {
-									log.G(Ctx).Debug("--- Created folder " + podSecretDir)
+									mode = ":rw"
 								}
+								fullPath += (":" + mountSpec.MountPath + "/" + key + mode + " ")
+								secretNamePath = fullPath
 
-								log.G(Ctx).Debug("--- Writing Secret files")
-								for k, v := range secrets {
-									// TODO: Ensure that these files are deleted in failure cases
-									fullPath := filepath.Join(podSecretDir, k)
-									os.WriteFile(fullPath, v, mode)
+								if os.Getenv("SHARED_FS") != "true" {
+									envTemp := string(container.Name) + "_SECRET_" + hexString
+									log.G(Ctx).Debug("---- Setting env " + env + " to mount the file later")
+									err = os.Setenv(env, string(mount.Data[key]))
 									if err != nil {
-										log.G(Ctx).Errorf("Could not write Secret file %s", fullPath)
-										err = os.RemoveAll(fullPath)
-										if err != nil {
-											log.G(Ctx).Error("Unable to remove file " + fullPath)
-											return nil, nil, err
-										}
-										return nil, nil, err
-									} else {
-										log.G(Ctx).Debug("--- Written Secret file " + fullPath)
+										log.G(Ctx).Error("Unable to set ENV for secret " + key)
+										return "", "", err
 									}
+									env = envTemp
 								}
 							}
-							return secretNamePaths, envs, nil
 						}
 
-					case string:
-						if podVolumeSpec != nil && podVolumeSpec.EmptyDir != nil {
+						if os.Getenv("SHARED_FS") == "true" {
+							log.G(Ctx).Info("--- Shared FS enabled, files will be directly created before the job submission")
+							cmd := []string{"-p " + podSecretDir}
+							shell := exec2.ExecTask{
+								Command: "mkdir",
+								Args:    cmd,
+								Shell:   true,
+							}
+
+							execReturn, err := shell.Execute()
+							if strings.Compare(execReturn.Stdout, "") != 0 {
+								log.G(Ctx).Error(err)
+								return "", "", err
+							}
+							if execReturn.Stderr != "" {
+								log.G(Ctx).Error(execReturn.Stderr)
+								return "", "", errors.New(execReturn.Stderr)
+							} else {
+								log.G(Ctx).Debug("--- Created folder " + podSecretDir)
+							}
+
+							log.G(Ctx).Debug("--- Writing Secret files")
+							for k, v := range secrets {
+								// TODO: Ensure that these files are deleted in failure cases
+								fullPath := filepath.Join(podSecretDir, k)
+								os.WriteFile(fullPath, v, mode)
+								if err != nil {
+									log.G(Ctx).Errorf("Could not write Secret file %s", fullPath)
+									err = os.RemoveAll(fullPath)
+									if err != nil {
+										log.G(Ctx).Error("Unable to remove file " + fullPath)
+										return "", "", err
+									}
+									return "", "", err
+								} else {
+									log.G(Ctx).Debug("--- Written Secret file " + fullPath)
+								}
+							}
+						}
+						return secretNamePath, env, nil
+					}
+				}
+				//}
+
+			case string:
+				var edPaths string
+				for _, vol := range pod.Spec.Volumes {
+					for _, mountSpec := range container.VolumeMounts {
+						if vol.EmptyDir != nil && vol.Name == mountSpec.Name {
 							var edPath string
 							edPath = filepath.Join(path + "/" + "emptyDirs/" + vol.Name)
 							log.G(Ctx).Info("-- Creating EmptyDir in " + edPath)
@@ -670,20 +801,27 @@ func mountData(Ctx context.Context, config SlurmConfig, pod v1.Pod, container v1
 							_, err := shell.Execute()
 							if err != nil {
 								log.G(Ctx).Error(err)
-								return nil, nil, err
+								return "", "", err
 							} else {
 								log.G(Ctx).Debug("-- Created EmptyDir in " + edPath)
 							}
 
-							edPath += (":" + mountSpec.MountPath + "/" + mountSpec.Name + ",")
-							return []string{edPath}, nil, nil
+							mode := ""
+							if mountSpec.ReadOnly {
+								mode = ":ro"
+							} else {
+								mode = ":rw"
+							}
+							edPath += (":" + mountSpec.MountPath + mode + " ")
+							edPaths += "--bind " + edPath + " "
 						}
 					}
 				}
+				return edPaths, "", nil
 			}
 		}
 	}
-	return nil, nil, nil
+	return "", "", nil
 }
 
 // checkIfJidExists checks if a JID is in the main JIDs struct
@@ -695,4 +833,19 @@ func checkIfJidExists(JIDs *map[string]*JidStruct, uid string) bool {
 	} else {
 		return false
 	}
+}
+
+// getExitCode returns the exit code read from the .status file of a specific container and returns it as an int32 number
+func getExitCode(ctx context.Context, path string, ctName string) (int32, error) {
+	exitCode, err := os.ReadFile(path + "/" + ctName + ".status")
+	if err != nil {
+		log.G(ctx).Error(err)
+		return 0, err
+	}
+	exitCodeInt, err := strconv.Atoi(strings.Replace(string(exitCode), "\n", "", -1))
+	if err != nil {
+		log.G(ctx).Error(err)
+		return 0, err
+	}
+	return int32(exitCodeInt), nil
 }

@@ -32,6 +32,8 @@ layer b/w the virtual kubelet component and the provider logic for the container
 
 Note: if you want a quick start setup (using a Docker container), Go is not necessary
 
+### :warning: It is very important for you to remember to set CPU and Memory Limits in your Pod/Deployment YAML, otherwise default resources will be applied; specifically, if you don't set a CPU limit, only 1 CPU will be used for each task, while if you don't set any Memory limit, only 1MB will be used for each task. :warning:
+
 ### :fast_forward: Quick Start
 
 Just run:

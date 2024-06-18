@@ -2,10 +2,10 @@ package slurm
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/containerd/containerd/log"
 
@@ -36,13 +36,15 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	containers := data.Pod.Spec.Containers
+	containers := data.Pod.Spec.InitContainers
+	containers = append(containers, data.Pod.Spec.Containers...)
 	metadata := data.Pod.ObjectMeta
 	filesPath := h.Config.DataRootFolder + data.Pod.Namespace + "-" + string(data.Pod.UID)
 
 	var singularity_command_pod []SingularityCommand
+	var resourceLimits ResourceLimits
 
-	for _, container := range containers {
+	for i, container := range containers {
 		log.G(h.Ctx).Info("- Beginning script generation for container " + container.Name)
 		singularityPrefix := SlurmConfigInst.SingularityPrefix
 		if singularityAnnotation, ok := metadata.Annotations["slurm-job.vk.io/singularity-commands"]; ok {
@@ -63,55 +65,76 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 
 		envs := prepareEnvs(h.Ctx, container)
 		image := ""
+
+		CPULimit, _ := container.Resources.Limits.Cpu().AsInt64()
+		MemoryLimit, _ := container.Resources.Limits.Memory().AsInt64()
+		if CPULimit == 0 {
+			log.G(h.Ctx).Warning(errors.New("Max CPU resource not set for " + container.Name + ". Only 1 CPU will be used"))
+			resourceLimits.CPU += 1
+		} else {
+			resourceLimits.CPU += CPULimit
+		}
+		if MemoryLimit == 0 {
+			log.G(h.Ctx).Warning(errors.New("Max Memory resource not set for " + container.Name + ". Only 1MB will be used"))
+			resourceLimits.Memory += 1024 * 1024
+		} else {
+			resourceLimits.Memory += MemoryLimit
+		}
+
 		mounts, err := prepareMounts(h.Ctx, h.Config, data, container, filesPath)
 		log.G(h.Ctx).Debug(mounts)
 		if err != nil {
 			statusCode = http.StatusInternalServerError
-			h.handleError(w, statusCode, err)
+			w.WriteHeader(statusCode)
+			w.Write([]byte("Error prepairing mounts. Check Slurm Sidecar's logs"))
+			log.G(h.Ctx).Error(err)
 			os.RemoveAll(filesPath)
 			return
 		}
 
 		image = container.Image
-		if strings.HasPrefix(container.Image, "/") {
-			if image_uri, ok := metadata.Annotations["slurm-job.vk.io/image-root"]; ok {
-				image = image_uri + container.Image
-			} else {
-				log.G(h.Ctx).Info("- image-uri annotation not specified for path in remote filesystem")
-			}
+		if image_uri, ok := metadata.Annotations["slurm-job.vk.io/image-root"]; ok {
+			image = image_uri + container.Image
 		} else {
-			image = container.Image
+			log.G(h.Ctx).Info("- image-uri annotation not specified for path in remote filesystem")
 		}
 
 		log.G(h.Ctx).Debug("-- Appending all commands together...")
 		singularity_command := append(commstr1, envs...)
-		singularity_command = append(singularity_command, mounts...)
+		singularity_command = append(singularity_command, mounts)
 		singularity_command = append(singularity_command, image)
-		singularity_command = append(singularity_command, container.Command...)
-		singularity_command = append(singularity_command, container.Args...)
 
-		singularity_command_pod = append(singularity_command_pod, SingularityCommand{command: singularity_command, containerName: container.Name})
+		isInit := false
+
+		if i < len(data.Pod.Spec.InitContainers) {
+			isInit = true
+		}
+
+		singularity_command_pod = append(singularity_command_pod, SingularityCommand{singularityCommand: singularity_command, containerName: container.Name, containerArgs: container.Args, containerCommand: container.Command, isInitContainer: isInit})
 	}
 
-	path, err := produceSLURMScript(h.Ctx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod)
+	path, err := produceSLURMScript(h.Ctx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod, resourceLimits)
 	if err != nil {
-		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		log.G(h.Ctx).Error(err)
 		os.RemoveAll(filesPath)
 		return
 	}
 	out, err := SLURMBatchSubmit(h.Ctx, h.Config, path)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		w.WriteHeader(statusCode)
+		w.Write([]byte("Error submitting Slurm script. Check Slurm Sidecar's logs"))
+		log.G(h.Ctx).Error(err)
 		os.RemoveAll(filesPath)
 		return
 	}
 	log.G(h.Ctx).Info(out)
-	jid, err := handleJID(h.Ctx, data.Pod, h.JIDs, out, filesPath)
+	jid, err := handleJidAndPodUid(h.Ctx, data.Pod, h.JIDs, out, filesPath)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		w.WriteHeader(statusCode)
+		w.Write([]byte("Error handling JID. Check Slurm Sidecar's logs"))
+		log.G(h.Ctx).Error(err)
 		os.RemoveAll(filesPath)
 		err = deleteContainer(h.Ctx, h.Config, string(data.Pod.UID), h.JIDs, filesPath)
 		if err != nil {
