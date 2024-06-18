@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"k8s.io/client-go/kubernetes"
 
@@ -57,6 +58,14 @@ func NewInterLinkConfig() (InterLinkConfig, error) {
 			return InterLinkConfig{}, err
 		}
 		yaml.Unmarshal(yfile, &InterLinkConfigInst)
+
+		if !strings.HasSuffix(InterLinkConfigInst.DataRootFolder, "/") {
+			InterLinkConfigInst.DataRootFolder += "/"
+		}
+
+		if strings.HasPrefix(InterLinkConfigInst.DataRootFolder, "~") {
+			InterLinkConfigInst.DataRootFolder = strings.Replace(InterLinkConfigInst.DataRootFolder, "~", "$HOME", 1)
+		}
 
 		if os.Getenv("INTERLINKURL") != "" {
 			InterLinkConfigInst.Interlinkurl = os.Getenv("INTERLINKURL")
