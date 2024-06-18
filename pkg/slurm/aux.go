@@ -48,6 +48,7 @@ type ResourceLimits struct {
 
 type SingularityCommand struct {
 	containerName      string
+	isInitContainer    bool
 	singularityCommand []string
 	containerCommand   []string
 	containerArgs      []string
@@ -460,10 +461,17 @@ func produceSLURMScript(
 		os.Chmod(f2.Name(), 0777|os.ModePerm)
 		os.Chmod(f3.Name(), 0777|os.ModePerm)
 
-		stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
-			"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
-			" &> " + path + "/" + singularityCommand.containerName + ".out; " +
-			"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
+		if singularityCommand.isInitContainer {
+			stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
+				"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
+				" &> " + path + "/" + singularityCommand.containerName + ".out; " +
+				"echo $? > " + path + "/" + singularityCommand.containerName + ".status"
+		} else {
+			stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
+				"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
+				" &> " + path + "/" + singularityCommand.containerName + ".out; " +
+				"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
+		}
 	}
 
 	stringToBeWritten += "\n" + postfix

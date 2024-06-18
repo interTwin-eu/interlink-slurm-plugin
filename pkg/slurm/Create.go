@@ -45,7 +45,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		var singularity_command_pod []SingularityCommand
 		var resourceLimits ResourceLimits
 
-		for _, container := range containers {
+		for i, container := range containers {
 			log.G(h.Ctx).Info("- Beginning script generation for container " + container.Name)
 			singularityPrefix := commonIL.InterLinkConfigInst.SingularityPrefix
 			if singularityAnnotation, ok := metadata.Annotations["slurm-job.vk.io/singularity-commands"]; ok {
@@ -105,7 +105,13 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			singularity_command = append(singularity_command, mounts)
 			singularity_command = append(singularity_command, image)
 
-			singularity_command_pod = append(singularity_command_pod, SingularityCommand{singularityCommand: singularity_command, containerName: container.Name, containerArgs: container.Args, containerCommand: container.Command})
+			isInit := false
+
+			if i < len(data.Pod.Spec.InitContainers) {
+				isInit = true
+			}
+
+			singularity_command_pod = append(singularity_command_pod, SingularityCommand{singularityCommand: singularity_command, containerName: container.Name, containerArgs: container.Args, containerCommand: container.Command, isInitContainer: isInit})
 		}
 
 		path, err := produceSLURMScript(h.Ctx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod, resourceLimits)
