@@ -520,34 +520,34 @@ func SLURMBatchSubmit(Ctx context.Context, config SlurmConfig, path string) (str
 // Finally, it stores the namespace and podUID info in the same location, to restore
 // status at startup.
 // Return the first encountered error.
-func handleJidAndPodUid(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) error {
+func handleJidAndPodUid(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidStruct, output string, path string) (string, error) {
 	r := regexp.MustCompile(`Submitted batch job (?P<jid>\d+)`)
 	jid := r.FindStringSubmatch(output)
 	fJID, err := os.Create(path + "/JobID.jid")
 	if err != nil {
 		log.G(Ctx).Error("Can't create jid_file")
-		return err
+		return "", err
 	}
 	defer fJID.Close()
 
 	fNS, err := os.Create(path + "/PodNamespace.ns")
 	if err != nil {
 		log.G(Ctx).Error("Can't create namespace_file")
-		return err
+		return "", err
 	}
 	defer fNS.Close()
 
 	fUID, err := os.Create(path + "/PodUID.uid")
 	if err != nil {
 		log.G(Ctx).Error("Can't create PodUID_file")
-		return err
+		return "", err
 	}
 	defer fUID.Close()
 
 	_, err = fJID.WriteString(jid[1])
 	if err != nil {
 		log.G(Ctx).Error(err)
-		return err
+		return "", err
 	}
 
 	(*JIDs)[string(pod.UID)] = &JidStruct{PodUID: string(pod.UID), PodNamespace: pod.Namespace, JID: jid[1]}
@@ -556,16 +556,16 @@ func handleJidAndPodUid(Ctx context.Context, pod v1.Pod, JIDs *map[string]*JidSt
 	_, err = fNS.WriteString(pod.Namespace)
 	if err != nil {
 		log.G(Ctx).Error(err)
-		return err
+		return "", err
 	}
 
 	_, err = fUID.WriteString(string(pod.UID))
 	if err != nil {
 		log.G(Ctx).Error(err)
-		return err
+		return "", err
 	}
 
-	return nil
+	return (*JIDs)[string(pod.UID)].JID, nil
 }
 
 // removeJID delete a JID from the structure
