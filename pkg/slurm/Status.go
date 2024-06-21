@@ -298,7 +298,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(statusCode)
 	if statusCode != http.StatusOK {
-		w.Write([]byte("Some errors occurred deleting containers. Check Docker Sidecar's logs"))
+		w.Write([]byte("Some errors occurred deleting containers. Check SLURM Sidecar's logs"))
 	} else {
 		bodyBytes, err := json.Marshal(resp)
 		if err != nil {
