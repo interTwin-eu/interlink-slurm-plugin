@@ -24,17 +24,22 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var data commonIL.RetrievedPodData
+	// TODO: fix interlink to send single request, no 1 item-long lists
+	var dataList []commonIL.RetrievedPodData
 
 	//to be changed to commonIL.CreateStruct
 	var returnedJID CreateStruct //returnValue
 	var returnedJIDBytes []byte
-	err = json.Unmarshal(bodyBytes, &data)
+	err = json.Unmarshal(bodyBytes, &dataList)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		w.WriteHeader(statusCode)
+		w.Write([]byte("Some errors occurred while creating container. Check Slurm Sidecar's logs"))
+		log.G(h.Ctx).Error(err)
 		return
 	}
+
+	data := dataList[0]
 
 	containers := data.Pod.Spec.InitContainers
 	containers = append(containers, data.Pod.Spec.Containers...)
