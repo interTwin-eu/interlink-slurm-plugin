@@ -290,10 +290,10 @@ func prepareMounts(
 
 	}
 
-		mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "command_" + container.Name + ".sh" +
-			":" + "/tmp/" + "command_" + container.Name + ".sh "
-		mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "args_" + container.Name + ".sh" +
-			":" + "/tmp/" + "args_" + container.Name + ".sh"
+	mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "command_" + container.Name + ".sh" +
+		":" + "/tmp/" + "command_" + container.Name + ".sh "
+	mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "args_" + container.Name + ".sh" +
+		":" + "/tmp/" + "args_" + container.Name + ".sh"
 
 	if last := len(mountedData) - 1; last >= 0 && mountedData[last] == ',' {
 		mountedData = mountedData[:last]
@@ -432,7 +432,11 @@ func produceSLURMScript(
 		defer f2.Close()
 
 		if len(singularityCommand.containerArgs) != 0 {
-			cmdString = strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
+			if singularityCommand.containerCommand != nil {
+				cmdString = strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
+			} else {
+				cmdString = "/bin/sh -c \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
+			}
 		} else {
 			cmdString = strings.Join(singularityCommand.containerCommand, " ")
 		}
