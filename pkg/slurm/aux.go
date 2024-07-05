@@ -290,12 +290,10 @@ func prepareMounts(
 
 	}
 
-	if container.Command != nil {
 		mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "command_" + container.Name + ".sh" +
 			":" + "/tmp/" + "command_" + container.Name + ".sh "
 		mountedData += "--bind " + config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "args_" + container.Name + ".sh" +
 			":" + "/tmp/" + "args_" + container.Name + ".sh"
-	}
 
 	if last := len(mountedData) - 1; last >= 0 && mountedData[last] == ',' {
 		mountedData = mountedData[:last]
