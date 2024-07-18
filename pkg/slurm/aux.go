@@ -466,7 +466,7 @@ func produceSLURMScript(
 			stringToBeWritten += "\n" + strings.Join(singularityCommand.singularityCommand[:], " ") + " " +
 				"/bin/sh" + " /tmp/" + "command_" + singularityCommand.containerName + ".sh" +
 				" &> " + path + "/" + singularityCommand.containerName + ".out; " +
-				"echo $? > " + path + "/" + singularityCommand.containerName + ".status &"
+				"echo $? > " + path + "/" + singularityCommand.containerName + ".status; sleep 30 &"
 		}
 	}
 
