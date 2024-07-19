@@ -432,7 +432,12 @@ func produceSLURMScript(
 		defer f2.Close()
 
 		if len(singularityCommand.containerArgs) != 0 {
-			cmdString = strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
+			if singularityCommand.containerCommand != nil {
+				cmdString = strings.Join(singularityCommand.containerCommand, " ") + " \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
+			} else {
+				cmdString = "/bin/sh -c \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
+			}
+
 		} else {
 			cmdString = strings.Join(singularityCommand.containerCommand, " ")
 		}
