@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/containerd/containerd/log"
 
@@ -99,7 +100,11 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 
 		image = container.Image
 		if image_uri, ok := metadata.Annotations["slurm-job.vk.io/image-root"]; ok {
-			image = image_uri + container.Image
+			if !strings.HasPrefix(image, image_uri) {
+				image = image_uri + container.Image
+			} else {
+				log.G(h.Ctx).Warning("- image-uri annotation specified but already present in the image name. Prefix won't be added.")
+			}
 		} else {
 			log.G(h.Ctx).Info("- image-uri annotation not specified for path in remote filesystem")
 		}

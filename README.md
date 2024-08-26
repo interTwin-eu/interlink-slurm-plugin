@@ -32,7 +32,34 @@ layer b/w the virtual kubelet component and the provider logic for the container
 
 Note: if you want a quick start setup (using a Docker container), Go is not necessary
 
-### :warning: It is very important for you to remember to set CPU and Memory Limits in your Pod/Deployment YAML, otherwise default resources will be applied; specifically, if you don't set a CPU limit, only 1 CPU will be used for each task, while if you don't set any Memory limit, only 1MB will be used for each task. :warning:
+#### :warning: Pods Requirements :warning:
+
+- It is very important for you to remember to set CPU and Memory Limits in your Pod/Deployment YAML, otherwise default resources will be applied; specifically, if you don't set a CPU limit, only 1 CPU will be used for each task, while if you don't set any Memory limit, only 1MB will be used for each task.
+
+- Docker entrypoints are not supported by Singularity. This means you have to manually specify a command to be executed. If you don't, /bin/sh is assumed as the default one. 
+
+The following is a simple example of a Pod with a specified command and limits properly set:
+```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+    name: test-pod
+    annotations:
+        slurm-job.knoc.io/flags: "--job-name=test-pod-cfg -t 2800  --ntasks=8 --nodes=1 --mem-per-cpu=2000"
+    spec:
+    restartPolicy: Never
+    containers:
+    - image: docker://busybox:latest 
+        command: ["echo"]
+        args: ["hello world"]
+        imagePullPolicy: Always
+        name: "hello world"
+        resources:
+            limits: 
+                memory: 100Mi
+                cpu: 2
+```
+
 
 ### :fast_forward: Quick Start
 
