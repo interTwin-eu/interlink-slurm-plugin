@@ -441,7 +441,6 @@ func produceSLURMScript(
 			} else {
 				cmdString = "/bin/sh -c \"$(cat /tmp/args_" + singularityCommand.containerName + ".sh)\""
 			}
-
 		} else {
 			cmdString = strings.Join(singularityCommand.containerCommand, " ")
 		}
