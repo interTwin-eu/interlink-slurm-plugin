@@ -15,10 +15,11 @@ services:
     - 4000:4000
     volumes:
     - type: bind
-      source: ../examples/config
-      target: /etc/interlink
+      source: ../examples/config/SlurmConfig.yaml
+      target: /root/SlurmConfig.yaml
     environment:
-      - SHARED_FS="true"
+      - SLURMCONFIGPATH=/root/SlurmConfig.yaml
+      - SHARED_FS=true
     # healthcheck:
     #   test: ["CMD", "/check.sh"]
     #   interval: 10s
