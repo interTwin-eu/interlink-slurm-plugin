@@ -18,10 +18,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	commonIL "github.com/intertwin-eu/interlink/pkg/interlink"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	trace "go.opentelemetry.io/otel/trace"
 )
 
 // StatusHandler performs a squeue --me and uses regular expressions to get the running Jobs' status
 func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().UnixMicro()
+	tracer := otel.Tracer("interlink-API")
+	spanCtx, span := tracer.Start(h.Ctx, "GetLogsSLURM", trace.WithAttributes(
+		attribute.Int64("start.timestamp", start),
+	))
+	defer span.End()
+	defer commonIL.SetDurationSpan(start, span)
+
 	var req []*v1.Pod
 	var resp []commonIL.PodStatus
 	statusCode := http.StatusOK
@@ -31,14 +43,14 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		h.handleError(spanCtx, w, statusCode, err)
 		return
 	}
 
 	err = json.Unmarshal(bodyBytes, &req)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		h.handleError(spanCtx, w, statusCode, err)
 		return
 	}
 
@@ -54,7 +66,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 
 		if execReturn.Stderr != "" {
 			statusCode = http.StatusInternalServerError
-			h.handleError(w, statusCode, errors.New("unable to retrieve job status: "+execReturn.Stderr))
+			h.handleError(spanCtx, w, statusCode, errors.New("unable to retrieve job status: "+execReturn.Stderr))
 			return
 		}
 
@@ -63,7 +75,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 			uid := string(pod.UID)
 			path := h.Config.DataRootFolder + pod.Namespace + "-" + string(pod.UID)
 
-			if checkIfJidExists((h.JIDs), uid) {
+			if checkIfJidExists(spanCtx, (h.JIDs), uid) {
 				cmd := []string{"--noheader", "-a", "-j " + (*h.JIDs)[uid].JID}
 				shell := exec.ExecTask{
 					Command: h.Config.Squeuepath,
@@ -76,13 +88,14 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 				//log.G(h.Ctx).Info("Pod: " + jid.PodUID + " | JID: " + jid.JID)
 
 				if execReturn.Stderr != "" {
+					span.AddEvent("squeue returned error " + execReturn.Stderr + " for Job " + (*h.JIDs)[uid].JID + ".\nGetting status from files")
 					log.G(h.Ctx).Error("ERR: ", execReturn.Stderr)
 					for _, ct := range pod.Spec.Containers {
 						log.G(h.Ctx).Info("Getting exit status from  " + path + "/" + ct.Name + ".status")
 						file, err := os.Open(path + "/" + ct.Name + ".status")
 						if err != nil {
 							statusCode = http.StatusInternalServerError
-							h.handleError(w, statusCode, fmt.Errorf("unable to retrieve container status: %s", err))
+							h.handleError(spanCtx, w, statusCode, fmt.Errorf("unable to retrieve container status: %s", err))
 							log.G(h.Ctx).Error()
 							return
 						}
@@ -90,7 +103,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 						statusb, err := io.ReadAll(file)
 						if err != nil {
 							statusCode = http.StatusInternalServerError
-							h.handleError(w, statusCode, fmt.Errorf("unable to read container status: %s", err))
+							h.handleError(spanCtx, w, statusCode, fmt.Errorf("unable to read container status: %s", err))
 							log.G(h.Ctx).Error()
 							return
 						}
@@ -98,7 +111,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 						status, err := strconv.Atoi(strings.Replace(string(statusb), "\n", "", -1))
 						if err != nil {
 							statusCode = http.StatusInternalServerError
-							h.handleError(w, statusCode, fmt.Errorf("unable to convert container status: %s", err))
+							h.handleError(spanCtx, w, statusCode, fmt.Errorf("unable to convert container status: %s", err))
 							log.G(h.Ctx).Error()
 							status = 500
 						}
@@ -133,7 +146,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								h.handleError(w, statusCode, err)
+								h.handleError(spanCtx, w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -154,7 +167,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/StartedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								h.handleError(w, statusCode, err)
+								h.handleError(spanCtx, w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].StartTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -170,7 +183,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								h.handleError(w, statusCode, err)
+								h.handleError(spanCtx, w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -197,7 +210,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								h.handleError(w, statusCode, err)
+								h.handleError(spanCtx, w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -218,7 +231,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/StartedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								h.handleError(w, statusCode, err)
+								h.handleError(spanCtx, w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].StartTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -240,7 +253,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								h.handleError(w, statusCode, err)
+								h.handleError(spanCtx, w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -261,7 +274,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 							f, err := os.Create(path + "/FinishedAt.time")
 							if err != nil {
 								statusCode = http.StatusInternalServerError
-								h.handleError(w, statusCode, err)
+								h.handleError(spanCtx, w, statusCode, err)
 								return
 							}
 							f.WriteString((*h.JIDs)[uid].EndTime.Format("2006-01-02 15:04:05.999999999 -0700 MST"))
@@ -302,7 +315,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bodyBytes, err := json.Marshal(resp)
 		if err != nil {
-			h.handleError(w, statusCode, err)
+			h.handleError(spanCtx, w, statusCode, err)
 			return
 		}
 		w.Write(bodyBytes)

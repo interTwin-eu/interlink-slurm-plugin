@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"go.opentelemetry.io/otel/trace"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/containerd/containerd/log"
@@ -44,7 +45,7 @@ func NewSlurmConfig() (SlurmConfig, error) {
 		}
 
 		if _, err := os.Stat(path); err != nil {
-			log.G(context.Background()).Error("File " + path + " doesn't exist. You can set a custom path by exporting INTERLINKCONFIGPATH. Exiting...")
+			log.G(context.Background()).Error("File " + path + " doesn't exist. You can set a custom path by exporting SLURMCONFIGPATH. Exiting...")
 			return SlurmConfig{}, err
 		}
 
@@ -95,7 +96,9 @@ func NewSlurmConfig() (SlurmConfig, error) {
 	return SlurmConfigInst, nil
 }
 
-func (h *SidecarHandler) handleError(w http.ResponseWriter, statusCode int, err error) {
+func (h *SidecarHandler) handleError(ctx context.Context, w http.ResponseWriter, statusCode int, err error) {
+	span := trace.SpanFromContext(ctx)
+	span.AddEvent("An error occurred:" + err.Error())
 	w.WriteHeader(statusCode)
 	w.Write([]byte("Some errors occurred while creating container. Check Slurm Sidecar's logs"))
 	log.G(h.Ctx).Error(err)

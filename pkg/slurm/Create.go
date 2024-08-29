@@ -6,22 +6,36 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/containerd/containerd/log"
 
 	commonIL "github.com/intertwin-eu/interlink/pkg/interlink"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	trace "go.opentelemetry.io/otel/trace"
 )
 
 // SubmitHandler generates and submits a SLURM batch script according to provided data.
 // 1 Pod = 1 Job. If a Pod has multiple containers, every container is a line with it's parameters in the SLURM script.
 func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().UnixMicro()
+	tracer := otel.Tracer("interlink-API")
+	spanCtx, span := tracer.Start(h.Ctx, "CreateSLURM", trace.WithAttributes(
+		attribute.Int64("start.timestamp", start),
+	))
+	defer span.End()
+	defer commonIL.SetDurationSpan(start, span)
+
 	log.G(h.Ctx).Info("Slurm Sidecar: received Submit call")
 	statusCode := http.StatusOK
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		h.handleError(spanCtx, w, statusCode, err)
 		return
 	}
 
@@ -34,9 +48,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(bodyBytes, &dataList)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Some errors occurred while creating container. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(spanCtx, w, http.StatusGatewayTimeout, err)
 		return
 	}
 
@@ -69,7 +81,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 
 		commstr1 := []string{"singularity", "exec", "--containall", "--nv", singularityMounts, singularityOptions}
 
-		envs := prepareEnvs(h.Ctx, container)
+		envs := prepareEnvs(spanCtx, container)
 		image := ""
 
 		CPULimit, _ := container.Resources.Limits.Cpu().AsInt64()
@@ -87,13 +99,11 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			resourceLimits.Memory += MemoryLimit
 		}
 
-		mounts, err := prepareMounts(h.Ctx, h.Config, data, container, filesPath)
+		mounts, err := prepareMounts(spanCtx, h.Config, data, container, filesPath)
 		log.G(h.Ctx).Debug(mounts)
 		if err != nil {
 			statusCode = http.StatusInternalServerError
-			w.WriteHeader(statusCode)
-			w.Write([]byte("Error prepairing mounts. Check Slurm Sidecar's logs"))
-			log.G(h.Ctx).Error(err)
+			h.handleError(spanCtx, w, http.StatusGatewayTimeout, err)
 			os.RemoveAll(filesPath)
 			return
 		}
@@ -120,10 +130,24 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			isInit = true
 		}
 
+		span.SetAttributes(
+			attribute.String("job.container"+strconv.Itoa(i)+".name", container.Name),
+			attribute.Bool("job.container"+strconv.Itoa(i)+".isinit", isInit),
+			attribute.StringSlice("job.container"+strconv.Itoa(i)+".envs", envs),
+			attribute.String("job.container"+strconv.Itoa(i)+".image", image),
+			attribute.StringSlice("job.container"+strconv.Itoa(i)+".command", container.Command),
+			attribute.StringSlice("job.container"+strconv.Itoa(i)+".args", container.Args),
+		)
+
 		singularity_command_pod = append(singularity_command_pod, SingularityCommand{singularityCommand: singularity_command, containerName: container.Name, containerArgs: container.Args, containerCommand: container.Command, isInitContainer: isInit})
 	}
 
-	path, err := produceSLURMScript(h.Ctx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod, resourceLimits)
+	span.SetAttributes(
+		attribute.Int64("job.limits.cpu", resourceLimits.CPU),
+		attribute.Int64("job.limits.memory", resourceLimits.Memory),
+	)
+
+	path, err := produceSLURMScript(spanCtx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod, resourceLimits)
 	if err != nil {
 		log.G(h.Ctx).Error(err)
 		os.RemoveAll(filesPath)
@@ -131,10 +155,9 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := SLURMBatchSubmit(h.Ctx, h.Config, path)
 	if err != nil {
+		span.AddEvent("Failed to submit the SLURM Job")
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Error submitting Slurm script. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(spanCtx, w, http.StatusGatewayTimeout, err)
 		os.RemoveAll(filesPath)
 		return
 	}
@@ -142,27 +165,28 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	jid, err := handleJidAndPodUid(h.Ctx, data.Pod, h.JIDs, out, filesPath)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		w.WriteHeader(statusCode)
-		w.Write([]byte("Error handling JID. Check Slurm Sidecar's logs"))
-		log.G(h.Ctx).Error(err)
+		h.handleError(spanCtx, w, http.StatusGatewayTimeout, err)
 		os.RemoveAll(filesPath)
-		err = deleteContainer(h.Ctx, h.Config, string(data.Pod.UID), h.JIDs, filesPath)
+		err = deleteContainer(spanCtx, h.Config, string(data.Pod.UID), h.JIDs, filesPath)
 		if err != nil {
 			log.G(h.Ctx).Error(err)
 		}
 		return
 	}
 
+	span.AddEvent("SLURM Job successfully submitted with ID " + jid)
 	returnedJID = CreateStruct{PodUID: string(data.Pod.UID), PodJID: jid}
 
 	returnedJIDBytes, err = json.Marshal(returnedJID)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		h.handleError(spanCtx, w, statusCode, err)
 		return
 	}
 
 	w.WriteHeader(statusCode)
+
+	commonIL.SetDurationSpan(start, span, commonIL.WithHTTPReturnCode(statusCode))
 
 	if statusCode != http.StatusOK {
 		w.Write([]byte("Some errors occurred while creating containers. Check Slurm Sidecar's logs"))

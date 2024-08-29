@@ -11,11 +11,23 @@ import (
 	"github.com/containerd/containerd/log"
 
 	commonIL "github.com/intertwin-eu/interlink/pkg/interlink"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	trace "go.opentelemetry.io/otel/trace"
 )
 
 // GetLogsHandler reads Jobs' output file to return what's logged inside.
 // What's returned is based on the provided parameters (Tail/LimitBytes/Timestamps/etc)
 func (h *SidecarHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().UnixMicro()
+	tracer := otel.Tracer("interlink-API")
+	spanCtx, span := tracer.Start(h.Ctx, "GetLogsSLURM", trace.WithAttributes(
+		attribute.Int64("start.timestamp", start),
+	))
+	defer span.End()
+	defer commonIL.SetDurationSpan(start, span)
+
 	log.G(h.Ctx).Info("Docker Sidecar: received GetLogs call")
 	var req commonIL.LogStruct
 	statusCode := http.StatusOK
@@ -24,21 +36,33 @@ func (h *SidecarHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		h.handleError(spanCtx, w, statusCode, err)
 		return
 	}
 
 	err = json.Unmarshal(bodyBytes, &req)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
-		h.handleError(w, statusCode, err)
+		h.handleError(spanCtx, w, statusCode, err)
 		return
 	}
+
+	span.SetAttributes(
+		attribute.String("pod.name", req.PodName),
+		attribute.String("pod.namespace", req.Namespace),
+		attribute.Int("opts.limitbytes", req.Opts.LimitBytes),
+		attribute.Int("opts.since", req.Opts.SinceSeconds),
+		attribute.Int64("opts.sincetime", req.Opts.SinceTime.UnixMicro()),
+		attribute.Int("opts.tail", req.Opts.Tail),
+		attribute.Bool("opts.follow", req.Opts.Follow),
+		attribute.Bool("opts.previous", req.Opts.Previous),
+		attribute.Bool("opts.timestamps", req.Opts.Timestamps),
+	)
 
 	path := h.Config.DataRootFolder + req.Namespace + "-" + req.PodUID
 	var output []byte
 	if req.Opts.Timestamps {
-		h.handleError(w, statusCode, err)
+		h.handleError(spanCtx, w, statusCode, err)
 		return
 	} else {
 		log.G(h.Ctx).Info("Reading  " + path + "/" + req.ContainerName + ".out")
@@ -52,7 +76,8 @@ func (h *SidecarHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if err1 != nil && err2 != nil {
-			h.handleError(w, statusCode, err)
+			span.AddEvent("Error retrieving logs")
+			h.handleError(spanCtx, w, statusCode, err)
 			return
 		}
 
@@ -114,6 +139,8 @@ func (h *SidecarHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 	}
+
+	commonIL.SetDurationSpan(start, span, commonIL.WithHTTPReturnCode(statusCode))
 
 	if statusCode != http.StatusOK {
 		w.Write([]byte("Some errors occurred while checking container status. Check Docker Sidecar's logs"))
