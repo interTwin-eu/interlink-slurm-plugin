@@ -2,7 +2,6 @@ version: '3.7'
 services:
   slurm-sidecar:
     container_name: slurm-sidecar
-    image: surax98/slurm-plugin:latest
     build:
       context: ../
       dockerfile: docker/Dockerfile
