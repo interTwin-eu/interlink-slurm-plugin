@@ -1,4 +1,5 @@
 SidecarPort: "4000"
+Socket: ""
 SbatchPath: "/usr/bin/sbatch"
 ScancelPath: "/usr/bin/scancel"
 SqueuePath: "/usr/bin/squeue"
