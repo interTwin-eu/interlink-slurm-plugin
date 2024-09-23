@@ -4,9 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -135,8 +139,34 @@ func main() {
 	SidecarAPIs.CreateDirectories()
 	SidecarAPIs.LoadJIDs()
 
-	err = http.ListenAndServe(":"+slurmConfig.Sidecarport, mutex)
-	if err != nil {
-		log.G(ctx).Fatal(err)
+	if strings.HasPrefix(slurmConfig.Socket, "unix://") {
+		// Create a Unix domain socket and listen for incoming connections.
+		socket, err := net.Listen("unix", strings.ReplaceAll(slurmConfig.Socket, "unix://", ""))
+		if err != nil {
+			panic(err)
+		}
+
+		// Cleanup the sockfile.
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-c
+			os.Remove(strings.ReplaceAll(slurmConfig.Socket, "unix://", ""))
+			os.Exit(1)
+		}()
+		server := http.Server{
+			Handler: mutex,
+		}
+
+		log.G(ctx).Info(socket)
+
+		if err := server.Serve(socket); err != nil {
+			log.G(ctx).Fatal(err)
+		}
+	} else {
+		err = http.ListenAndServe(":"+slurmConfig.Sidecarport, mutex)
+		if err != nil {
+			log.G(ctx).Fatal(err)
+		}
 	}
 }
