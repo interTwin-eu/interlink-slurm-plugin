@@ -57,7 +57,7 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	if timeNow.Sub(timer) >= time.Second*10 {
 		cmd := []string{"--me"}
 		shell := exec.ExecTask{
-			Command: "squeue",
+			Command: h.Config.Squeuepath,
 			Args:    cmd,
 			Shell:   true,
 		}
