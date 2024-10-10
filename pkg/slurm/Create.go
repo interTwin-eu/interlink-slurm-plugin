@@ -81,7 +81,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 
 		commstr1 := []string{"singularity", "exec", "--containall", "--nv", singularityMounts, singularityOptions}
 
-		envs := prepareEnvs(spanCtx, container)
+		envs := prepareEnvs(spanCtx, h.Config, data, container)
 		image := ""
 
 		CPULimit, _ := container.Resources.Limits.Cpu().AsInt64()
