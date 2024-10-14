@@ -1,0 +1,26 @@
+name: integration-tests 
+
+on:
+  push:
+    #branches: [main,next,next2next]
+  pull_request:
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Get Repo Owner
+        id: get_repo_owner
+        run: echo ::set-output name=repo_owner::$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')
+      - name: Integration Test
+        uses: dagger/dagger-for-github@v6
+        with:
+          workdir: ci
+          verb: call
+          args: -s test --interlink-version 0.3.1 --src ../ --plugin-config ../examples/config/SlurmConfig.yaml
+          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+          version: "0.13.0"
+
