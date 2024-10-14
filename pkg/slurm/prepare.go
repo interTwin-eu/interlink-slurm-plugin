@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"al.essio.dev/pkg/shellescape"
 	exec2 "github.com/alexellis/go-execute/pkg/v1"
 	"github.com/containerd/containerd/log"
 	v1 "k8s.io/api/core/v1"
@@ -184,36 +185,79 @@ func (h *SidecarHandler) LoadJIDs() error {
 	return nil
 }
 
-// prepareEnvs reads all Environment variables from a container and append them to a slice of strings.
-// It returns the slice containing all envs in the form of key=value.
-func prepareEnvs(Ctx context.Context, container v1.Container) []string {
+func createEnvFile(Ctx context.Context, config SlurmConfig, podData commonIL.RetrievedPodData, container v1.Container) ([]string, []string, error) {
+		envs := []string{}
+		// For debugging purpose only
+		envs_data := []string{}
+	
+		envfilePath := (config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "envfile.properties")
+		log.G(Ctx).Info("-- Appending envs using envfile " + envfilePath)
+		envs = append(envs, "--env-file")
+		envs = append(envs, envfilePath)
+		
+		envfile, err := os.Create(envfilePath)
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return nil, nil, err
+		}
+		defer envfile.Close()
+		
+		for _, envVar := range container.Env {
+			// The environment variable values can contains all sort of simple/double quote and space and any arbitrary values.
+			// singularity reads the env-file and parse it like a bash string, so shellescape will escape any quote properly.
+			tmpValue :=  shellescape.Quote(envVar.Value)
+			tmp := (envVar.Name + "=" + tmpValue)
+			
+			envs_data = append(envs_data, tmp)
+			
+			_, err := envfile.WriteString(tmp + "\n")
+			if err != nil {
+				log.G(Ctx).Error(err)
+				return nil, nil, err
+			} else {
+				log.G(Ctx).Debug("---- Written envfile file " + envfilePath + " key " + envVar.Name + " value " + tmpValue)
+			}
+		}
+		
+		// All env variables are written, we flush it now. 
+		err = envfile.Sync()
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return nil, nil, err
+		}
+		
+		// Calling Close() in case of error. If not error, the defer will close it again but it should be idempotent.
+		envfile.Close()
+		
+		return envs, envs_data, nil
+}
+
+// prepareEnvs reads all Environment variables from a container and append them to a envfile.properties. The values are bash-escaped.
+// It returns the slice containing, if there are Environment variables, the arguments for envfile and its path, or else an empty array.
+func prepareEnvs(Ctx context.Context, config SlurmConfig, podData commonIL.RetrievedPodData, container v1.Container) []string {
 	start := time.Now().UnixMicro()
 	span := trace.SpanFromContext(Ctx)
 	span.AddEvent("Preparing ENVs for container " + container.Name)
-	var envs []string
+	var envs []string = []string{}
+	// For debugging purpose only
+	envs_data := []string{}
+	var err error
 
 	if len(container.Env) > 0 {
-		log.G(Ctx).Info("-- Appending envs")
-		envs = append(envs, "--env")
-		env_data := ""
-		for _, envVar := range container.Env {
-			tmp := (envVar.Name + "=" + envVar.Value + ",")
-			env_data += tmp
+		envs, envs_data, err = createEnvFile(Ctx, config, podData, container)
+		if err != nil {
+			log.G(Ctx).Error(err)
+			return nil
 		}
-		if last := len(env_data) - 1; last >= 0 && env_data[last] == ',' {
-			env_data = env_data[:last]
-		}
-		if env_data == "" {
-			envs = []string{}
-		}
-		envs = append(envs, env_data)
 	}
 
 	duration := time.Now().UnixMicro() - start
 	span.AddEvent("Prepared ENVs for container "+container.Name, trace.WithAttributes(
 		attribute.String("prepareenvs.container.name", container.Name),
 		attribute.Int64("prepareenvs.duration", duration),
-		attribute.StringSlice("prepareenvs.container.envs", envs)))
+		attribute.StringSlice("prepareenvs.container.envs", envs),
+		attribute.StringSlice("prepareenvs.container.envs_data", envs_data)))
+
 	return envs
 }
 
