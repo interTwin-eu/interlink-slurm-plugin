@@ -81,7 +81,6 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 
 		commstr1 := []string{"singularity", "exec", "--containall", "--nv", singularityMounts, singularityOptions}
 
-		envs := prepareEnvs(spanCtx, h.Config, data, container)
 		image := ""
 
 		CPULimit, _ := container.Resources.Limits.Cpu().AsInt64()
@@ -107,6 +106,9 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			os.RemoveAll(filesPath)
 			return
 		}
+		
+		// prepareEnvs creates a file in the working directory, that must exist. This is created at prepareMounts.
+		envs := prepareEnvs(spanCtx, h.Config, data, container)
 
 		image = container.Image
 		if image_uri, ok := metadata.Annotations["slurm-job.vk.io/image-root"]; ok {
