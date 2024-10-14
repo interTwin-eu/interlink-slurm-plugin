@@ -110,8 +110,6 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		// prepareEnvs creates a file in the working directory, that must exist. This is created at prepareMounts.
 		envs := prepareEnvs(spanCtx, h.Config, data, container)
 
-		envs := prepareEnvs(spanCtx, h.Config, data, container)
-
 		image = container.Image
 		if image_uri, ok := metadata.Annotations["slurm-job.vk.io/image-root"]; ok {
 			if !strings.HasPrefix(image, image_uri) {
