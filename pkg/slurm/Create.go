@@ -79,7 +79,17 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			singularityOptions = singOpts
 		}
 
-		commstr1 := []string{"singularity", "exec", "--containall", "--nv", singularityMounts, singularityOptions}
+		// See https://github.com/interTwin-eu/interlink-slurm-plugin/issues/32#issuecomment-2416031030
+		// singularity run will honor the entrypoint/command (if exist) in container image, while exec will override entrypoint.
+		// Thus if pod command (equivalent to container entrypoint) exist, we do exec, and other case we do run
+		singularityCommand := ""
+		if container.Command != nil && len(container.Command) != 0 {
+			singularityCommand = "exec"
+		} else {
+			singularityCommand = "run"
+		}
+
+		commstr1 := []string{"singularity", singularityCommand, "--containall", "--nv", singularityMounts, singularityOptions}
 
 		image := ""
 
