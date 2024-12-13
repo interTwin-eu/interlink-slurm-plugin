@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,50 +187,50 @@ func (h *SidecarHandler) LoadJIDs() error {
 }
 
 func createEnvFile(Ctx context.Context, config SlurmConfig, podData commonIL.RetrievedPodData, container v1.Container) ([]string, []string, error) {
-		envs := []string{}
-		// For debugging purpose only
-		envs_data := []string{}
-	
-		envfilePath := (config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "envfile.properties")
-		log.G(Ctx).Info("-- Appending envs using envfile " + envfilePath)
-		envs = append(envs, "--env-file")
-		envs = append(envs, envfilePath)
-		
-		envfile, err := os.Create(envfilePath)
+	envs := []string{}
+	// For debugging purpose only
+	envs_data := []string{}
+
+	envfilePath := (config.DataRootFolder + podData.Pod.Namespace + "-" + string(podData.Pod.UID) + "/" + "envfile.properties")
+	log.G(Ctx).Info("-- Appending envs using envfile " + envfilePath)
+	envs = append(envs, "--env-file")
+	envs = append(envs, envfilePath)
+
+	envfile, err := os.Create(envfilePath)
+	if err != nil {
+		log.G(Ctx).Error(err)
+		return nil, nil, err
+	}
+	defer envfile.Close()
+
+	for _, envVar := range container.Env {
+		// The environment variable values can contains all sort of simple/double quote and space and any arbitrary values.
+		// singularity reads the env-file and parse it like a bash string, so shellescape will escape any quote properly.
+		tmpValue := shellescape.Quote(envVar.Value)
+		tmp := (envVar.Name + "=" + tmpValue)
+
+		envs_data = append(envs_data, tmp)
+
+		_, err := envfile.WriteString(tmp + "\n")
 		if err != nil {
 			log.G(Ctx).Error(err)
 			return nil, nil, err
+		} else {
+			log.G(Ctx).Debug("---- Written envfile file " + envfilePath + " key " + envVar.Name + " value " + tmpValue)
 		}
-		defer envfile.Close()
-		
-		for _, envVar := range container.Env {
-			// The environment variable values can contains all sort of simple/double quote and space and any arbitrary values.
-			// singularity reads the env-file and parse it like a bash string, so shellescape will escape any quote properly.
-			tmpValue :=  shellescape.Quote(envVar.Value)
-			tmp := (envVar.Name + "=" + tmpValue)
-			
-			envs_data = append(envs_data, tmp)
-			
-			_, err := envfile.WriteString(tmp + "\n")
-			if err != nil {
-				log.G(Ctx).Error(err)
-				return nil, nil, err
-			} else {
-				log.G(Ctx).Debug("---- Written envfile file " + envfilePath + " key " + envVar.Name + " value " + tmpValue)
-			}
-		}
-		
-		// All env variables are written, we flush it now. 
-		err = envfile.Sync()
-		if err != nil {
-			log.G(Ctx).Error(err)
-			return nil, nil, err
-		}
-		
-		// Calling Close() in case of error. If not error, the defer will close it again but it should be idempotent.
-		envfile.Close()
-		
-		return envs, envs_data, nil
+	}
+
+	// All env variables are written, we flush it now.
+	err = envfile.Sync()
+	if err != nil {
+		log.G(Ctx).Error(err)
+		return nil, nil, err
+	}
+
+	// Calling Close() in case of error. If not error, the defer will close it again but it should be idempotent.
+	envfile.Close()
+
+	return envs, envs_data, nil
 }
 
 // prepareEnvs reads all Environment variables from a container and append them to a envfile.properties. The values are bash-escaped.
@@ -400,21 +401,19 @@ func produceSLURMScript(
 
 	f, err := os.Create(path + "/job.sh")
 	if err != nil {
-		log.G(Ctx).Error(err)
-		return "", err
-	}
-	err = os.Chmod(path+"/job.sh", 0774)
-	if err != nil {
+		log.G(Ctx).Error("Unable to create file ", path, "/job.sh")
 		log.G(Ctx).Error(err)
 		return "", err
 	}
 	defer f.Close()
 
+	err = os.Chmod(path+"/job.sh", 0774)
 	if err != nil {
-		log.G(Ctx).Error("Unable to create file " + path + "/job.sh")
+		log.G(Ctx).Error("Unable to chmod file ", path, "/job.sh")
+		log.G(Ctx).Error(err)
 		return "", err
 	} else {
-		log.G(Ctx).Debug("--- Created file " + path + "/job.sh")
+		log.G(Ctx).Debug("--- Created with correct permission file ", path, "/job.sh")
 	}
 
 	var sbatchFlagsFromArgo []string
@@ -509,8 +508,8 @@ func produceSLURMScript(
 		stringToBeWritten.WriteString(singularityCommand.containerName)
 		stringToBeWritten.WriteString(".out; ")
 		stringToBeWritten.WriteString("echo $? > " + path + "/" + singularityCommand.containerName + ".status")
-		
-		if ! singularityCommand.isInitContainer {
+
+		if !singularityCommand.isInitContainer {
 			// Not init containers are run in parallel.
 			stringToBeWritten.WriteString("; sleep 30 &")
 		}
@@ -639,23 +638,35 @@ func deleteContainer(Ctx context.Context, config SlurmConfig, podUID string, JID
 			log.G(Ctx).Info("- Deleted Job ", (*JIDs)[podUID].JID)
 		}
 	}
-	err := os.RemoveAll(path)
 	jid := (*JIDs)[podUID].JID
 	removeJID(podUID, JIDs)
 
+	errFirstAttempt := os.RemoveAll(path)
 	span.SetAttributes(
 		attribute.String("delete.pod.uid", podUID),
 		attribute.String("delete.jid", jid),
 	)
 
-	if err != nil {
-		log.G(Ctx).Error(err)
-		span.AddEvent("Failed to delete SLURM Job " + (*JIDs)[podUID].JID + " for Pod " + podUID)
-	} else {
-		span.AddEvent("SLURM Job " + jid + " for Pod " + podUID + " successfully deleted")
-	}
+	if errFirstAttempt != nil {
+		log.G(Ctx).Debug("Attempt 1 of deletion failed, not really an error! Probably log file still opened, waiting for close... Error: ", errFirstAttempt)
+		// We expect first rm of directory to possibly fail, in case for eg logs are in follow mode, so opened. The removeJID will end the follow loop,
+		// maximum after the loop period of 4s. So we ignore the error and attempt a second time after being sure the loop has ended.
+		time.Sleep(5 * time.Second)
 
-	return err
+		errSecondAttempt := os.RemoveAll(path)
+		if errSecondAttempt != nil {
+			log.G(Ctx).Error("Attempt 2 of deletion failed: ", errSecondAttempt)
+			span.AddEvent("Failed to delete SLURM Job " + jid + " for Pod " + podUID)
+			return errSecondAttempt
+		} else {
+			log.G(Ctx).Info("Attempt 2 of deletion succeeded!")
+		}
+	}
+	span.AddEvent("SLURM Job " + jid + " for Pod " + podUID + " successfully deleted")
+
+	// We ignore the deletion error because it is already logged, and because InterLink can still be opening files (eg logs in follow mode).
+	// Once InterLink will not use files, all files will be deleted then.
+	return nil
 }
 
 // mountData is called by prepareMounts and creates files and directory according to their definition in the pod structure.
@@ -920,11 +931,34 @@ func checkIfJidExists(ctx context.Context, JIDs *map[string]*JidStruct, uid stri
 }
 
 // getExitCode returns the exit code read from the .status file of a specific container and returns it as an int32 number
-func getExitCode(ctx context.Context, path string, ctName string) (int32, error) {
-	exitCode, err := os.ReadFile(path + "/" + ctName + ".status")
+func getExitCode(ctx context.Context, path string, ctName string, exitCodeMatch string, sessionContextMessage string) (int32, error) {
+	statusFilePath := path + "/" + ctName + ".status"
+	exitCode, err := os.ReadFile(statusFilePath)
 	if err != nil {
-		log.G(ctx).Error(err)
-		return 0, err
+		if errors.Is(err, fs.ErrNotExist) {
+			// Case job terminated before the container script has the time to write status file (eg: canceled jobs).
+			log.G(ctx).Warning(sessionContextMessage, "file ", statusFilePath, " not found despite the job being in terminal state. Workaround: using Slurm job exit code:", exitCodeMatch)
+
+			exitCodeInt, errAtoi := strconv.Atoi(exitCodeMatch)
+			if errAtoi != nil {
+				errWithContext := fmt.Errorf(sessionContextMessage+"error during Atoi() of getExitCode() of file %s exitCodeMatch: %s error: %s %w", statusFilePath, exitCodeMatch, fmt.Sprintf("%#v", errAtoi), errAtoi)
+				log.G(ctx).Error(errWithContext)
+				return 11, errWithContext
+			}
+
+			errWriteFile := os.WriteFile(statusFilePath, []byte(exitCodeMatch), 0644)
+			if errWriteFile != nil {
+				errWithContext := fmt.Errorf(sessionContextMessage+"error during WriteFile() of getExitCode() of file %s error: %s %w", statusFilePath, fmt.Sprintf("%#v", errWriteFile), errWriteFile)
+				log.G(ctx).Error(errWithContext)
+				return 12, errWithContext
+			}
+
+			return int32(exitCodeInt), nil
+		} else {
+			errWithContext := fmt.Errorf(sessionContextMessage+"error during ReadFile() of getExitCode() of file %s error: %s %w", statusFilePath, fmt.Sprintf("%#v", err), err)
+			log.G(ctx).Error(errWithContext)
+			return 21, errWithContext
+		}
 	}
 	exitCodeInt, err := strconv.Atoi(strings.Replace(string(exitCode), "\n", "", -1))
 	if err != nil {
