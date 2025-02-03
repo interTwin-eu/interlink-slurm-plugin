@@ -89,7 +89,8 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			singularityCommand = "run"
 		}
 
-		commstr1 := []string{"singularity", singularityCommand, "--containall", "--nv", singularityMounts, singularityOptions}
+		// no-eval is important so that singularity does not evaluate env var, because the shellquote has already done the safety check.
+		commstr1 := []string{"singularity", singularityCommand, "--no-eval", "--containall", "--nv", singularityMounts, singularityOptions}
 
 		image := ""
 
@@ -108,7 +109,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 			resourceLimits.Memory += MemoryLimit
 		}
 
-		mounts, err := prepareMounts(spanCtx, h.Config, data, container, filesPath)
+		mounts, err := prepareMounts(spanCtx, h.Config, &data, &container, filesPath)
 		log.G(h.Ctx).Debug(mounts)
 		if err != nil {
 			statusCode = http.StatusInternalServerError
