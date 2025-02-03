@@ -4,7 +4,7 @@ SbatchPath: "/usr/bin/sbatch"
 ScancelPath: "/usr/bin/scancel"
 SqueuePath: "/usr/bin/squeue"
 CommandPrefix: ""
-SingularityPrefix: ""
+ImagePrefix: "docker://"
 ExportPodData: true
 DataRootFolder: ".local/interlink/jobs/"
 Namespace: "vk"
