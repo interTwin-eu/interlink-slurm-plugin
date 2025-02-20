@@ -23,6 +23,8 @@ require (
 	k8s.io/client-go v0.29.1
 )
 
+replace github.com/intertwin-eu/interlink => /var/home/dciangot/git/interLink
+
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

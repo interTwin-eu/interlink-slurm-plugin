@@ -42,22 +42,23 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: fix interlink to send single request, no 1 item-long lists
 	var dataList []commonIL.RetrievedPodData
 
-	//to be changed to commonIL.CreateStruct
-	var returnedJID CreateStruct //returnValue
+	// to be changed to commonIL.CreateStruct
+	var returnedJID CreateStruct // returnValue
 	var returnedJIDBytes []byte
 	err = json.Unmarshal(bodyBytes, &dataList)
 	if err != nil {
-		statusCode = http.StatusInternalServerError
 		h.handleError(spanCtx, w, http.StatusGatewayTimeout, err)
 		return
 	}
 
 	data := dataList[0]
 
+	path := ""
+	filesPath := h.Config.DataRootFolder + data.Pod.Namespace + "-" + string(data.Pod.UID)
+
 	containers := data.Pod.Spec.InitContainers
 	containers = append(containers, data.Pod.Spec.Containers...)
 	metadata := data.Pod.ObjectMeta
-	filesPath := h.Config.DataRootFolder + data.Pod.Namespace + "-" + string(data.Pod.UID)
 
 	var singularity_command_pod []SingularityCommand
 	var resourceLimits ResourceLimits
@@ -94,7 +95,7 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		MemoryLimit, _ := container.Resources.Limits.Memory().AsInt64()
 		if CPULimit == 0 {
 			log.G(h.Ctx).Warning(errors.New("Max CPU resource not set for " + container.Name + ". Only 1 CPU will be used"))
-			resourceLimits.CPU += 1
+			resourceLimits.CPU++
 		} else {
 			resourceLimits.CPU += CPULimit
 		}
@@ -166,18 +167,58 @@ func (h *SidecarHandler) SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		attribute.Int64("job.limits.memory", resourceLimits.Memory),
 	)
 
-	path, err := produceSLURMScript(spanCtx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod, resourceLimits)
-	if err != nil {
-		log.G(h.Ctx).Error(err)
-		os.RemoveAll(filesPath)
-		return
+	log.G(h.Ctx).Debug("data.JobScript: ", data.JobScript)
+	if data.JobScript == "" {
+		path, err = produceSLURMScript(spanCtx, h.Config, string(data.Pod.UID), filesPath, metadata, singularity_command_pod, resourceLimits)
+		if err != nil {
+			log.G(h.Ctx).Error(err)
+			os.RemoveAll(filesPath)
+			return
+		}
+	} else {
+
+		pathFile, err := os.Create(filesPath + "/jobScript.sh")
+		if err != nil {
+			log.G(h.Ctx).Error("Unable to create file ", path, "/jobScript.sh")
+			log.G(h.Ctx).Error(err)
+			span.AddEvent("Failed to submit the SLURM Job")
+			h.handleError(spanCtx, w, http.StatusInternalServerError, err)
+			//os.RemoveAll(filesPath)
+			return
+		}
+
+		mode := os.FileMode(0770)
+
+		// Change the file mode
+		if err := os.Chmod(filesPath+"/jobScript.sh", mode); err != nil {
+			panic(err)
+		}
+
+		_, err = pathFile.Write([]byte(data.JobScript))
+		if err != nil {
+			log.G(h.Ctx).Error("Unable to write to file ", path, "/jobScript.sh")
+			log.G(h.Ctx).Error(err)
+			span.AddEvent("Failed to submit the SLURM Job")
+			h.handleError(spanCtx, w, http.StatusInternalServerError, err)
+			//os.RemoveAll(filesPath)
+			return
+		}
+		jobCommand := SingularityCommand{singularityCommand: []string{pathFile.Name()}, containerName: "jobScript", containerArgs: []string{}, containerCommand: []string{}, isInitContainer: false}
+
+		path, err = produceSLURMScript(spanCtx, h.Config, string(data.Pod.UID), filesPath, metadata, []SingularityCommand{jobCommand}, resourceLimits)
+		if err != nil {
+			log.G(h.Ctx).Error(err)
+			os.RemoveAll(filesPath)
+			return
+		}
 	}
+
 	out, err := SLURMBatchSubmit(h.Ctx, h.Config, path)
 	if err != nil {
 		span.AddEvent("Failed to submit the SLURM Job")
 		statusCode = http.StatusInternalServerError
 		h.handleError(spanCtx, w, http.StatusGatewayTimeout, err)
-		os.RemoveAll(filesPath)
+		//os.RemoveAll(filesPath)
 		return
 	}
 	log.G(h.Ctx).Info(out)

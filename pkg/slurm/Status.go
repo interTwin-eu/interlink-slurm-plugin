@@ -99,8 +99,8 @@ func (h *SidecarHandler) StatusHandler(w http.ResponseWriter, r *http.Request) {
 					span.AddEvent("squeue returned error " + execReturn.Stderr + " for Job " + (*h.JIDs)[uid].JID + ".\nGetting status from files")
 					log.G(h.Ctx).Error(sessionContextMessage, "ERR: ", execReturn.Stderr)
 					for _, ct := range pod.Spec.Containers {
-						log.G(h.Ctx).Info(sessionContextMessage, "getting exit status from  "+path+"/"+ct.Name+".status")
-						file, err := os.Open(path + "/" + ct.Name + ".status")
+						log.G(h.Ctx).Info(sessionContextMessage, "getting exit status from  "+path+"/run-"+ct.Name+".status")
+						file, err := os.Open(path + "/run-" + ct.Name + ".status")
 						if err != nil {
 							statusCode = http.StatusInternalServerError
 							h.handleError(spanCtx, w, statusCode, fmt.Errorf(sessionContextMessage+"unable to retrieve container status: %s", err))

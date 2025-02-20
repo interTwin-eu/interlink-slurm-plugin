@@ -192,7 +192,7 @@ func (h *SidecarHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 	)
 
 	path := h.Config.DataRootFolder + req.Namespace + "-" + req.PodUID
-	containerOutputPath := path + "/" + req.ContainerName + ".out"
+	containerOutputPath := path + "/run-" + req.ContainerName + ".out"
 	var output []byte
 	if req.Opts.Timestamps {
 		//h.logErrorVerbose(sessionContextMessage+"unsupported option req.Opts.Timestamps, ignoring it", spanCtx, w, err)
@@ -202,8 +202,14 @@ func (h *SidecarHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	containerOutput, err := h.ReadLogs(containerOutputPath, span, spanCtx, w, sessionContextMessage)
 	if err != nil {
-		// Error already handled in waitAndReadLogs
-		return
+		log.G(h.Ctx).Warning(sessionContextMessage, "cannot find any container with this name, falling back to init containers")
+		containerOutputPath := path + "/init-" + req.ContainerName + ".out"
+		containerOutput, err = h.ReadLogs(containerOutputPath, span, spanCtx, w, sessionContextMessage)
+		if err != nil {
+			// Error already handled in waitAndReadLogs
+			log.G(h.Ctx).Warning(sessionContextMessage, "cannot find any log for this container")
+			return
+		}
 	}
 	jobOutput, err := h.ReadLogs(path+"/"+"job.out", span, spanCtx, w, sessionContextMessage)
 	if err != nil {
